@@ -11,8 +11,15 @@ test_images_loc = "../data/test_images_tracker_setup/"
 greaterthan0(x) = x .> 0 # convert labeled image to boolean
 greaterthan05(x) = x .> 0.5 # used for the image resize step
 
-for fname in ["021_baffin_bay_20120422_aqua_labeled_floes_v1.png",
-              "036_baffin_bay_20210602_aqua_labeled_floes_v1.png"]
+for fname in ["001-baffin_bay-20220911-aqua-labeled_floes.png",
+              "022-barents_kara_seas-20060909-aqua-labeled_floes.png",
+              "043-beaufort_sea-20190813-aqua-labeled_floes.png",
+              "065-bering_chukchi_seas-20080507-aqua-labeled_floes.png",
+              "086-east_siberian_sea-20060927-aqua-labeled_floes.png", # likely will throw error, this image is empty
+              "107-greenland_sea-20210506-aqua-labeled_floes.png",
+              "128-hudson_bay-20190415-aqua-labeled_floes.png",
+              "148-laptev_sea-20110324-aqua-labeled_floes.png",
+              "171-sea_of_okhostk-20090618-aqua-labeled_floes.png"]
     image = load(joinpath(test_images_loc, fname))
         
     # Add labels and get region properties
@@ -62,7 +69,7 @@ for fname in ["021_baffin_bay_20120422_aqua_labeled_floes_v1.png",
                     scaled_rotated_props = regionprops_table(label_components(im_scaled_rotated))
                     
                     # rotation estimate
-                    mm, estimated_rotation = mismatch(im_scaled, im_scaled_rotated)
+                    mm, estimated_rotation = mismatch(im_scaled, im_scaled_rotated, mxrot=π/2)
 
                     un_rotated = collect(imrotate(im_scaled_rotated, -deg2rad(estimated_rotation),
                                          axes(im_scaled), method=BSpline(Constant())));
