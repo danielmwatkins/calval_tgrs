@@ -15,7 +15,7 @@ for fname in ["001-baffin_bay-20220911-aqua-labeled_floes.png",
               "022-barents_kara_seas-20060909-aqua-labeled_floes.png",
               "043-beaufort_sea-20190813-aqua-labeled_floes.png",
               "065-bering_chukchi_seas-20080507-aqua-labeled_floes.png",
-              "086-east_siberian_sea-20060927-aqua-labeled_floes.png", # likely will throw error, this image is empty
+              "086-east_siberian_sea-20060927-aqua-labeled_floes.png",
               "107-greenland_sea-20210506-aqua-labeled_floes.png",
               "128-hudson_bay-20190415-aqua-labeled_floes.png",
               "148-laptev_sea-20110324-aqua-labeled_floes.png",
