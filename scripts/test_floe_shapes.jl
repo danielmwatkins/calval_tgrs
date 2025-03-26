@@ -1,25 +1,34 @@
 using Pkg;
-Pkg.activate("../notebooks/calval")
+Pkg.activate("calval")
 
 using IceFloeTracker
 using IceFloeTracker: load, regionprops_table, label_components, imshow, absdiffmeanratio, mismatch, addfloemasks!
 using DataFrames, Statistics, CSV, Dates, Plots, Interpolations, Images
 
-test_images_loc = "../data/test_images_tracker_setup/"
+test_images_loc = "../../eval_seg/data/validation_images/binary_floes/"
 
 # convenience functions
 greaterthan0(x) = x .> 0 # convert labeled image to boolean
 greaterthan05(x) = x .> 0.5 # used for the image resize step
-
-for fname in ["001-baffin_bay-20220911-aqua-labeled_floes.png",
-              "022-barents_kara_seas-20060909-aqua-labeled_floes.png",
-              "043-beaufort_sea-20190813-aqua-labeled_floes.png",
-              "065-bering_chukchi_seas-20080507-aqua-labeled_floes.png",
-              "086-east_siberian_sea-20060927-aqua-labeled_floes.png",
-              "107-greenland_sea-20210506-aqua-labeled_floes.png",
-              "128-hudson_bay-20190415-aqua-labeled_floes.png",
-              "148-laptev_sea-20110324-aqua-labeled_floes.png",
-              "171-sea_of_okhostk-20090618-aqua-labeled_floes.png"]
+# Update to do random sample of these images
+for fname in ["001-baffin_bay-20220911-aqua-binary_floes.png",
+              "004-baffin_bay-20190925-aqua-binary_floes.png",
+              "022-barents_kara_seas-20060909-aqua-binary_floes.png",
+              "023-barents_kara_seas-20190304-aqua-binary_floes.png",
+              "043-beaufort_sea-20190813-aqua-binary_floes.png",
+              "044-beaufort_sea-20200808-terra-binary_floes.png",
+              "065-bering_chukchi_seas-20080507-aqua-binary_floes.png",
+              "067-bering_chukchi_seas-20080623-aqua-binary_floes.png",
+              "086-east_siberian_sea-20060927-aqua-binary_floes.png",
+              "093-east_siberian_sea-20180422-aqua-binary_floes.png",
+              "107-greenland_sea-20210506-aqua-binary_floes.png",
+              "108-greenland_sea-20180610-aqua-binary_floes.png",
+              "128-hudson_bay-20190415-aqua-binary_floes.png",
+              "129-hudson_bay-20100324-terra-binary_floes.png",
+              "148-laptev_sea-20110324-aqua-binary_floes.png",
+              "148-laptev_sea-20110324-terra-binary_floes.png",
+              "171-sea_of_okhostk-20090618-aqua-binary_floes.png",
+              "175-sea_of_okhostk-20100604-aqua-binary_floes.png"]
     image = load(joinpath(test_images_loc, fname))
         
     # Add labels and get region properties
@@ -47,15 +56,15 @@ for fname in ["001-baffin_bay-20220911-aqua-labeled_floes.png",
                    )
     floe_id = 1
     for floe_data in eachrow(props) # replace this list with iterating through rows of props and checking area
-        if floe_data["area"] > 500
+        if floe_data["area"] > 50
             init_floe = copy(floe_data["mask"])
             # pad the floe to avoid changing floe area relative to image size
             n = Int64(round(maximum(size(init_floe))))
             padded_init = collect(padarray(init_floe, Fill(0, (n, n), (n, n))))
-            for rotation in range(-90, 90, 61)
+            for rotation in range(-45, 45, 31)
                 im_rotated = collect(imrotate(padded_init, deg2rad(rotation),
                                          axes(padded_init), method=BSpline(Constant())));
-                for scale in [1, 0.5, 0.25]
+                for scale in [1] #, 0.5, 0.25]
                     if scale < 1
                         new_size = trunc.(Int, size(padded_init) .* scale)
                         im_scaled = greaterthan05(collect(imresize(padded_init, new_size)))
