@@ -11,24 +11,28 @@ test_images_loc = "../../eval_seg/data/validation_images/binary_floes/"
 greaterthan0(x) = x .> 0 # convert labeled image to boolean
 greaterthan05(x) = x .> 0.5 # used for the image resize step
 # Update to do random sample of these images
-for fname in ["001-baffin_bay-20220911-aqua-binary_floes.png",
-              "004-baffin_bay-20190925-aqua-binary_floes.png",
-              "022-barents_kara_seas-20060909-aqua-binary_floes.png",
-              "023-barents_kara_seas-20190304-aqua-binary_floes.png",
-              "043-beaufort_sea-20190813-aqua-binary_floes.png",
-              "044-beaufort_sea-20200808-terra-binary_floes.png",
-              "065-bering_chukchi_seas-20080507-aqua-binary_floes.png",
-              "067-bering_chukchi_seas-20080623-aqua-binary_floes.png",
-              "086-east_siberian_sea-20060927-aqua-binary_floes.png",
-              "093-east_siberian_sea-20180422-aqua-binary_floes.png",
-              "107-greenland_sea-20210506-aqua-binary_floes.png",
-              "108-greenland_sea-20180610-aqua-binary_floes.png",
-              "128-hudson_bay-20190415-aqua-binary_floes.png",
-              "129-hudson_bay-20100324-terra-binary_floes.png",
-              "148-laptev_sea-20110324-aqua-binary_floes.png",
-              "148-laptev_sea-20110324-terra-binary_floes.png",
-              "171-sea_of_okhostk-20090618-aqua-binary_floes.png",
-              "175-sea_of_okhostk-20100604-aqua-binary_floes.png"]
+# for fname in ["001-baffin_bay-20220911-aqua-binary_floes.png",
+#               "004-baffin_bay-20190925-aqua-binary_floes.png",
+#               "022-barents_kara_seas-20060909-aqua-binary_floes.png",
+#               "023-barents_kara_seas-20190304-aqua-binary_floes.png",
+#               "043-beaufort_sea-20190813-aqua-binary_floes.png",
+#               "044-beaufort_sea-20200808-terra-binary_floes.png",
+#               "065-bering_chukchi_seas-20080507-aqua-binary_floes.png",
+#               "067-bering_chukchi_seas-20080623-aqua-binary_floes.png",
+#               "086-east_siberian_sea-20060927-aqua-binary_floes.png",
+#               "093-east_siberian_sea-20180422-aqua-binary_floes.png",
+#               "107-greenland_sea-20210506-aqua-binary_floes.png",
+#               "108-greenland_sea-20180610-aqua-binary_floes.png",
+#               "128-hudson_bay-20190415-aqua-binary_floes.png",
+#               "129-hudson_bay-20100324-terra-binary_floes.png",
+#               "148-laptev_sea-20110324-aqua-binary_floes.png",
+#               "148-laptev_sea-20110324-terra-binary_floes.png",
+#               "171-sea_of_okhostk-20090618-aqua-binary_floes.png",
+#               "175-sea_of_okhostk-20100604-aqua-binary_floes.png"]
+files = readdir(test_images_loc)
+files = [f for f in files if occursin("aqua", f)]
+    
+for fname in files
     image = load(joinpath(test_images_loc, fname))
         
     # Add labels and get region properties
@@ -78,18 +82,23 @@ for fname in ["001-baffin_bay-20220911-aqua-binary_floes.png",
                     scaled_rotated_props = regionprops_table(label_components(im_scaled_rotated))
                     
                     # rotation estimate
-                    mm, estimated_rotation = mismatch(im_scaled, im_scaled_rotated, mxrot=π/2)
+                    # This is expensive! Testing how fast it runs if we skip the rotation stuff.
+                    mm = 0
+                    estimated_rotation = 0
+                    # mm, estimated_rotation = mismatch(im_scaled, im_scaled_rotated, mxrot=π/2)
 
-                    un_rotated = collect(imrotate(im_scaled_rotated, -deg2rad(estimated_rotation),
-                                         axes(im_scaled), method=BSpline(Constant())));
-                    
+                    # un_rotated = collect(imrotate(im_scaled_rotated, -deg2rad(estimated_rotation),
+                                         # axes(im_scaled), method=BSpline(Constant())));
+                    # for now just ignore this stepß
+                    un_rotated = im_scaled_rotated
                     # This should be close to right
                     # Ideally though the objects would be aligned at their centroids
                     
                     a_not_b = (im_scaled .> 0) .& (greaterthan05(un_rotated) .== 0);
                     b_not_a = (im_scaled .== 0) .& (greaterthan05(un_rotated) .> 0);
                     normalized_sd = sum(a_not_b .|| b_not_a) / scaled_rotated_props[1,:area]
-                    
+
+                    # should this be turned to .> 0 etc?
                     a_and_b = im_scaled .== greaterthan05(un_rotated)
                     recall = sum(a_and_b) / scaled_rotated_props[1,:area]
                     
