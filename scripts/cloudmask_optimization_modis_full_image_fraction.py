@@ -1,3 +1,6 @@
+"""
+The approach in this case is based on comparison with the cloud fraction averaged across the whole image, rather than pixel by pixel. It uses the "B or C" version of the algorithm rather than the "B and C" version.
+"""
 import numpy as np
 import os
 import pandas as pd
@@ -8,8 +11,9 @@ from sklearn.model_selection import KFold
 from scipy.interpolate import interp1d
 
 # Load the list of cloud clearing evaluation cases
+dataloc = '../../ice_floe_validation_dataset/'
 
-df = pd.read_csv('../data/merged_validation_table.csv')
+df = pd.read_csv(dataloc + 'data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
 df.groupby('region').count()
 
@@ -32,37 +36,15 @@ def fname(case_data, imtype='labeled'):
         return '.'.join([prefix, sat, imtype, '250m', 'tiff'])
 
 # Load raster data
-fc_dataloc = '../data/falsecolor/'
-cl_dataloc = '../data/cloudfraction/'
-lb_dataloc = '../data/labeled_floes_png/'
+fc_dataloc = dataloc + '/data/modis/falsecolor/'
+cf_dataloc = dataloc + '/data/modis/cloudfraction_numeric/'
 
 fc_images = {}
-cl_images = {}
-lb_images = {}
+cf_images = {}
 
-missing = []
 for row, data in df.iterrows():
-    
-    for dataloc, imtype, data_dict in zip([fc_dataloc, cl_dataloc],
-                                          ['falsecolor', 'cloudfraction'],
-                                          [fc_images, cl_images]):
-        try:
-            with rio.open(dataloc + fname(df.loc[row,:], imtype)) as im:
-                data_dict[row] = im.read()
-        except:
-            print('Couldn\'t read', fname(df.loc[row,:], imtype), imtype)
-            if fname(df.loc[row,:], imtype) not in missing:
-                missing.append(fname(df.loc[row,:]))
-
-    if data.visible_floes != 'no':
-        try:
-            with rio.open(lb_dataloc + fname(df.loc[row,:], 'labeled')) as im:
-                lb_images[row] = im.read()
-        except:
-            # print('Couldn\'t read', fname(df.loc[row,:], 'labeled'))
-            if fname(df.loc[row,:], imtype) not in missing:
-                missing.append(fname(df.loc[row,:]))        
-
+    with rio.open(fc_dataloc + fname(df.loc[row,:], 'falsecolor')) as im:
+        fc_images[row] = im.read()
 
 #### Manual Estimate #####
 # Compute estimated cloud fraction for a range of threshold values
@@ -109,7 +91,6 @@ print(manual_results_table)
 print(manual_results_table.mean(axis=0).round(2))
 print('Error against held-out data')
 
-
 manual_tc = manual_results_table.mean(axis=0).round(2)['TC']
 test_results = np.array([
     np.mean(fc_images[case][0,:,:] > manual_tc) - df.loc[case, 'cloud_fraction_manual']
@@ -117,7 +98,6 @@ test_results = np.array([
 manual_test_results = pd.Series(test_results, index=df_testing.index)
 manual_tc_rmse = np.sqrt(np.mean(test_results**2))
 print('Manual CF error:', np.round(manual_tc_rmse, 3))
-
 
 ###### Calculation of error against MODIS cloud product ########
 # Loading from file
@@ -133,7 +113,7 @@ for case in df.index:
     df.loc[case, 'cloud_fraction_modis'] = np.mean(cf_images[case]/100)
 
 
-regions = pd.read_csv('../../../evaluating_sea_ice_segmentation/eval_seg/data/metadata/region_definitions.csv', index_col=0)
+regions = pd.read_csv('../../eval_seg/data/metadata/region_definitions.csv', index_col=0)
 
 colors = {region: c['color'] for region, c in zip(
             regions.index,
@@ -296,5 +276,5 @@ ax2.legend(h, ['RMSE (all)', 'RMSE (region)', 'Count'], loc='ul', ncols=1, alpha
 
 ax.axhline(tc_rmse, color='k', ls='--', lw=1) 
 axs.format(abc=True)
-fig.save('../figures/cloud_validation_step1_modis.png')
+fig.save('../figures/cloud_validation_step1_modis_v1.png')
 
