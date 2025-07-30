@@ -1,8 +1,11 @@
 """Run the preprocessing script on the validation dataset to produce morphological residue"""
 
 using Pkg
-# Specifying an environment makes it easier to work with package versions
 home_dir = "../"
+data_dir = "../../ice_floe_validation_dataset/data/"
+save_dir = "../data/validation_dataset/"
+
+# Specifying an environment makes it easier to work with package versions
 Pkg.activate(joinpath(home_dir, "notebooks/calval"))
 
 using IceFloeTracker
@@ -39,10 +42,8 @@ adapthisteq_params = (
     white_threshold=25.5, entropy_threshold=4, white_fraction_threshold=0.4
 )
 
-# set locations
-data_dir = "../../ice_floe_validation_dataset/"
-save_dir = "../data/validation_dataset/"
-for row in eachrows(df)
+
+for row in eachrow(df)
     case_number = lpad(row[:case_number], 3, "0")
     region = row[:region]
     date = Dates.format(row[:start_date], "yyyymmdd")
@@ -57,11 +58,15 @@ for row in eachrows(df)
     
     lm_image = float64.(RGB.(load(joinpath(data_dir, "modis", "landmask", lm_filename))))
     fc_image = float64.(RGB.(load(joinpath(data_dir, "modis", "falsecolor", fc_filename))))
+    tc_image = float64.(RGB.(load(joinpath(data_dir, "modis", "truecolor", tc_filename))))
 
     # generate cloudmask
     cloudmask = IceFloeTracker.create_cloudmask(fc_image; cloud_mask_settings...)
     fc_img_cloudmasked = IceFloeTracker.apply_cloudmask(fc_image, cloudmask)
 
+    # generate landmask
+    landmask = IceFloeTracker.create_landmask(lm_image)
+    
     # treat image as a single tile
     prelim_sizes = size(tc_image) .÷ 1
     tiles = IceFloeTracker.get_tiles(tc_image, prelim_sizes[1] + 1);
@@ -111,9 +116,9 @@ for row in eachrows(df)
         morphed_residue[adjusting_mask] .* adjust_gamma_params.gamma_factor);
 
     # save results to file
-    Images.save(joinpath(save_loc, "morphological_residue", mr_savename)),
+    Images.save(joinpath(save_dir, "morphological_residue", mr_savename),
         Gray.(morphed_residue./255))
-    Images.save(joinpath(save_loc, "cloudmask", cm_savename)),
+    Images.save(joinpath(save_dir, "cloudmask", cm_savename),
         Gray.(cloudmask))
 end
 
