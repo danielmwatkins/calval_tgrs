@@ -1,4 +1,4 @@
-name: 'calval'
+name: 'calval2'
 channels:
   - conda-forge
   - defaults
@@ -9,11 +9,12 @@ dependencies:
   - netcdf4
   - pandas
   - pyproj
-  - matplotlib=3.4.3
-  - proplot=0.9.7
-  - python=3.9.13
+  - matplotlib
+  - ultraplot
+  - python
   - rasterio
   - scikit-image
   - scikit-learn
-prefix: /opt/miniconda3/envs/calval
+prefix: /opt/miniconda3/envs/calval2
+
 
