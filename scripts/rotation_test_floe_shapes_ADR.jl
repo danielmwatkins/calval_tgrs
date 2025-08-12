@@ -1,3 +1,5 @@
+"""Rotation experiment for calibration paper. All floes rotated by set amounts, then the differences are calculated. For the absdiffratio, note that to match the new paper, you need to multiply by 0.5"""
+
 using Pkg;
 Pkg.activate("cal-val")
 
@@ -5,7 +7,7 @@ using IceFloeTracker
 using IceFloeTracker: load, regionprops_table, label_components, imshow, absdiffmeanratio, mismatch, addfloemasks!
 using DataFrames, CSV, Interpolations, Images
 
-test_images_loc = "../../ice_floe_validation_dataset/data/validation_dataset/binary_floes/"
+test_images_loc = "/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/data/validation_dataset/binary_floes/"
 
 # convenience functions
 greaterthan0(x) = x .> 0 # convert labeled image to boolean
@@ -26,12 +28,15 @@ end
 
 files = readdir(test_images_loc)
 files = [f for f in files if occursin("aqua", f)]
-    
+
+# build psi fails for: 111, 130.
+# files_subset = [f for f in files if parse(Int64, f[1:3]) != 130 && parse(Int64, f[1:3]) != 111]
 for fname in files
     image = load(joinpath(test_images_loc, fname))
         
     # Add labels and get region properties
     labeled_image = label_components(image);
+    # properties=["area", "convex_area", "perimeter", "major_axis_length", "minor_axis_length"]
     props = regionprops_table(labeled_image);
     
     addfloemasks!(props, greaterthan0.(labeled_image));
@@ -43,12 +48,14 @@ for fname in files
                    convex_area=Float64[],
                    major_axis_length=Float64[],
                    minor_axis_length=Float64[],
+                   perimeter=Float64[],
                    adr_area=Float64[],
                    adr_convex_area=Float64[],
                    adr_major_axis_length=Float64[],
                    adr_minor_axis_length=Float64[],
                    rotation_estimated=Float64[],
-                   minimum_shape_difference=Float64[]
+                   minimum_shape_difference=Float64[],
+                   psi_s_correlation=Float64[],
                    )
     floe_id = 1
     for floe_data in eachrow(props)
@@ -67,6 +74,14 @@ for fname in files
     
                 normalized_mismatch, rotation_degrees, shape_difference = mismatch_temp(
                     im_init, im_rotated, -90:1:90)
+                try
+                    _psi = IceFloeTracker.buildψs.([im_init, im_rotated])
+                    global r = round(IceFloeTracker.corr(_psi...), digits=3)
+                
+                catch e
+                    @warn "Build Psi-S failed: $e"
+                    global r = NaN
+                end
                 
                 push!(df, (floe_id,
                            rotation,
@@ -74,12 +89,14 @@ for fname in files
                            rotated_props[1,:convex_area],
                            rotated_props[1,:major_axis_length],
                            rotated_props[1,:minor_axis_length],
-                           absdiffmeanratio(floe_data["area"], rotated_props[1,:area]),
-                           absdiffmeanratio(floe_data["convex_area"], rotated_props[1,:convex_area]),
-                           absdiffmeanratio(floe_data["major_axis_length"], rotated_props[1,:major_axis_length]),
-                           absdiffmeanratio(floe_data["minor_axis_length"], rotated_props[1,:minor_axis_length]),
+                           rotated_props[1,:perimeter],
+                           0.5*absdiffmeanratio(floe_data["area"], rotated_props[1,:area]),
+                           0.5*absdiffmeanratio(floe_data["convex_area"], rotated_props[1,:convex_area]),
+                           0.5*absdiffmeanratio(floe_data["major_axis_length"], rotated_props[1,:major_axis_length]),
+                           0.5*absdiffmeanratio(floe_data["minor_axis_length"], rotated_props[1,:minor_axis_length]),
                            rotation_degrees,
-                           shape_difference
+                           shape_difference,
+                           r
                            )) 
             end
         end

@@ -43,18 +43,46 @@ def sic_along_track_monthly(position_data, sic_data, year):
     return sic
 
 columns = ['buoy_id', 'datetime', 'latitude', 'longitude', 'sic_monthly']
-buoy_data = []
-for year in range(2003, 2010):
+for year in range(2022, 2023): #2023 and 2024 are available, need to run the sic code first though
+    buoy_data = []
     print(year)
     df = convert_level1_iabp(pd.read_csv(dataloc + "LEVEL1_{y}.csv".format(y=year)))
     with xr.open_dataset('../data/nsidc_sic_cdr/nsidc_cdr_sic_{y}.nc'.format(y=year)) as ds_sic:
         for buoy_id, buoy_df in df.groupby('buoy_id'):
             buoy_df['sic_monthly'] = sic_along_track_monthly(buoy_df, ds_sic, year)
-            if sum(buoy_df['sic_monthly'].between(0.15, 0.8)) > 10:
-                buoy_df['check_dates'] = cleaning.check_dates(buoy_df, date_col='datetime')
-                buoy_df['check_duplicates'] = cleaning.check_positions(buoy_df, pairs_only=True)
-                buoy_df['check_gaps'] = cleaning.check_gaps(buoy_df, threshold_gap='9h', threshold_segment=12, date_col='datetime')
-                buoy_df['check_speed'] = cleaning.check_speed(buoy_df.set_index('datetime'), window='3d', max_speed=1.5, sigma=5).values
-                buoy_df['passed_qc'] = ~(buoy_df['check_dates'] | buoy_df['check_duplicates'] | buoy_df['check_gaps'] | buoy_df['check_speed'])
-                buoy_data.append(buoy_df.loc[buoy_df.sic_monthly.between(0.15, 0.8), columns].copy())
-    pd.concat(buoy_data).to_csv('../data/iabp_miz_data/iabp_data_{y}.csv'.format(y=year))
+            if sum(buoy_df['sic_monthly'].between(0.15, 0.8)) > 40:
+                buoy_df['check_dates'] = cleaning.check_dates(buoy_df,
+                                                              date_col='datetime')
+                
+                idx = buoy_df['check_dates'] == 0
+                buoy_df['check_positions'] = False
+                buoy_df.loc[idx, 'check_positions'] = cleaning.check_positions(buoy_df.loc[idx, :],
+                                                                               pairs_only=True)
+
+                idx = ~(buoy_df['check_dates'] | buoy_df['check_positions'])
+                buoy_df['check_gaps'] = False
+                buoy_df.loc[idx, 'check_gaps'] = cleaning.check_gaps(buoy_df.loc[idx, :],
+                                                                     threshold_gap='9h',
+                                                                     threshold_segment=12,
+                                                                     date_col='datetime')
+
+                idx = ~(buoy_df['check_dates'] | buoy_df['check_positions'] | buoy_df['check_gaps'])
+                buoy_df['check_speed'] = False
+                buoy_df.loc[idx, 'check_speed'] = cleaning.check_speed(buoy_df.loc[idx, :],
+                                                                       date_index=False,
+                                                                       window='3d',
+                                                                       max_speed=1.5,
+                                                                       date_col='datetime',
+                                                                       sigma=5)
+                
+                buoy_df['passed_qc'] = ~(buoy_df['check_dates'] | \
+                                         buoy_df['check_positions'] | \
+                                         buoy_df['check_gaps'] | \
+                                         buoy_df['check_speed'])
+                if sum(buoy_df['passed_qc']) > 40:
+                    buoy_data.append(buoy_df.loc[buoy_df['passed_qc'], columns].copy())
+        # except:
+        #         print(year, buoy_id, 'failed')
+                
+    if len(buoy_data) > 0:
+        pd.concat(buoy_data).to_csv('../data/iabp_miz_data/iabp_data_{y}.csv'.format(y=year))
