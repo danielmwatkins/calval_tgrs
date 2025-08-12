@@ -9,9 +9,8 @@ dependencies:
   - netcdf4
   - pandas
   - pyproj
-  - matplotlib=3.4.3
-  - proplot=0.9.7
-  - python=3.9.13
+  - matplotlib
+  - ultraplot
   - rasterio
   - scikit-image
   - scikit-learn
