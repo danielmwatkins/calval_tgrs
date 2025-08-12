@@ -4,7 +4,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 import warnings
 warnings.simplefilter("ignore")
-import proplot as pplt
+import ultraplot as pplt
 import rasterio as rio
 from rasterio.plot import reshape_as_image
 from sklearn.model_selection import KFold
@@ -25,7 +25,7 @@ title_case = {'baffin_bay': 'Baffin Bay',
               'sea_of_okhostk': 'Sea of Okhostk'}
 
 # load the list of cloud clearing evaluation cases
-dataloc = '../../ice_floe_validation_dataset/'
+dataloc = '/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
 df = pd.read_csv(dataloc + '/data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
 df.groupby('region').count()
