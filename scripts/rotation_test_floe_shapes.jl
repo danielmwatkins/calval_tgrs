@@ -48,7 +48,7 @@ for fname in files
                    convex_area=Float64[],
                    major_axis_length=Float64[],
                    minor_axis_length=Float64[],
-                   perimeter=Float64[],
+                   perimeter=Float64[],                   
                    adr_area=Float64[],
                    adr_convex_area=Float64[],
                    adr_major_axis_length=Float64[],
