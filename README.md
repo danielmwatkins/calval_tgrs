@@ -27,7 +27,7 @@ The calibration and initial validation of the tracking module is carried out usi
 - Fully obscured floes: Floe and its boundary have cloud fraction greater than (max).
 
 Coding steps
-1. Add script to generate floe property tables and save the tables in the calval_tgrs folder
+1. Add script to generate floe property tables and save the tables in the calval_tgrs folder. Added, but still need a few details -- need the pass times, and need the
 2. Add script to add pass-times to the property tables.
 3. Add cloud fraction property to the exported property tables
 4. Merge exported property tables with the IFT exported "matched pairs" tests

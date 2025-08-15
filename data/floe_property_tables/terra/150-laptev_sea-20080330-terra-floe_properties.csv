@@ -1,0 +1,4 @@
+area,min_row,min_col,max_row,max_col,row_centroid,col_centroid,convex_area,label,major_axis_length,minor_axis_length,orientation,perimeter,perimeter_crofton,cloud_fraction,band_7_reflectance,band_2_reflectance,band_1_reflectance
+55,229.0,174.0,236.0,182.0,232.0,178.0,58.0,2.0,9.95,7.17,1.11,25.9,27.24,1.0,0.45,0.64,0.67
+58,263.0,159.0,270.0,167.0,266.0,163.0,59.0,3.0,10.7,6.94,0.93,26.49,27.79,0.4,0.24,0.58,0.61
+92,287.0,143.0,297.0,154.0,291.0,149.0,98.0,4.0,12.87,9.24,0.79,34.97,35.84,0.23,0.31,0.75,0.78
