@@ -1,11 +1,11 @@
 """Generate figure 2, the sea ice fraction climatology for the study regions."""
 import pandas as pd
-import proplot as pplt
+import ultraplot as pplt
 import numpy as np
 import warnings
 warnings.simplefilter('ignore')
-
-regions = pd.read_csv('../data/metadata/region_definitions.csv', index_col=0)
+ice_floe_dataset = "../../ice_floe_validation_dataset/"
+regions = pd.read_csv(ice_floe_dataset + '/data/metadata/region_definitions.csv', index_col=0)
 regions['print_title'] = [c.replace('_', ' ').title().replace('Of', 'of') for c in regions.index]
 
 colors = {region: c['color'] for region, c in zip(
@@ -31,7 +31,7 @@ regions = regions.sort_values('idx_num')
 regions.loc['bering_chukchi_seas', 'print_title'] = 'Bering-Chukchi Seas'
 regions.loc['barents_kara_seas', 'print_title'] = 'Barents-Kara Seas'
 
-sif_timeseries = pd.read_csv('../data/metadata/daily_sea_ice_fraction.csv', index_col=0, parse_dates=True)
+sif_timeseries = pd.read_csv(ice_floe_dataset + '/data/metadata/daily_sea_ice_fraction.csv', index_col=0, parse_dates=True)
 sif_timeseries['doy'] = sif_timeseries.index.dayofyear
 
 p90 = sif_timeseries.groupby('doy').quantile(0.9)
@@ -53,4 +53,4 @@ for region in regions.index:
 ax.legend(loc='b', ncols=3,lw=2, order='F')
 ax.format(ylabel='Sea Ice Fraction', xlabel='Day of Year', ylim=(0, 1),
          ylocator=np.arange(0.1, 0.91, 0.2), xlim=(60, 274))
-fig.save('../figures/fig03_sea_ice_fraction.png', dpi=300)
+fig.save('../figures/fig_02_sea_ice_fraction.png', dpi=300)

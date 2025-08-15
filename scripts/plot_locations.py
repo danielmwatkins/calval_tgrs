@@ -1,5 +1,5 @@
 import pandas as pd
-import proplot as pplt
+import ultraplot as pplt
 import cartopy.crs as ccrs
 import numpy as np
 import warnings
@@ -11,7 +11,8 @@ pplt.rc['reso'] = 'med'
 pplt.rc['cartopy.circular'] = False
 
 # Load data
-# TBD: Update to version 5 of the NSIDC sea ice concentration climate data record
+ice_floe_dataset = "../../ice_floe_validation_dataset/"
+
 sic_data = []
 for year in range(2000, 2022):
     ds = xr.open_dataset("~/Documents/research/data/nsidc_daily_cdr_v4/aggregate/seaice_conc_daily_nh_{y}_v04r00.nc".format(y=year))
@@ -37,8 +38,20 @@ s = ds_april['longitude'].isel(tdim=0).data.squeeze().shape
 X = np.reshape(x, s)
 Y = np.reshape(y, s)
 
+
+# mask regions
+lons, lats = transformer_ll.transform(X,  Y)
+
+# sic bias along russian coast
+idx_mask = (lats < 75) & ((lons >= 0) & (lons < 160))
+idx_mask = idx_mask | ((lats < 70) & (lons > 160))
+idx_mask = idx_mask | ((lats < 70) & (lons < -160))
+idx_mask = idx_mask | ((lats < 75) & ((lons > -90) & (lons <= -30)))
+
+
 # Load region data
-regions = pd.read_csv('../data/metadata/region_definitions.csv', index_col=0)
+
+regions = pd.read_csv(ice_floe_dataset + '/data/metadata/region_definitions.csv', index_col=0)
 regions['print_title'] = [c.replace('_', ' ').title().replace('Of', 'of') for c in regions.index]
 
 # Put in longitude order starting with Greenland
@@ -52,8 +65,6 @@ regions = regions.loc[['greenland_sea',
                        'hudson_bay',
                        'baffin_bay'],:]
 
-
-	
 
 crs = ccrs.NorthPolarStereo(central_longitude=-45, true_scale_latitude=70)
 fig, ax = pplt.subplots(width=4.5, proj='npstere', proj_kw={'lon_0': -45})
@@ -69,13 +80,13 @@ miz = (ds_april_mean['cdr_seaice_conc'] > 0.15) & (ds_april_mean['cdr_seaice_con
 april_miz = np.ma.masked_array(np.ones(miz.data.shape), mask=~miz)    
 
 miz = (ds_sept_mean['cdr_seaice_conc'] > 0.15) & (ds_sept_mean['cdr_seaice_conc'] < 0.85)
-sept_miz = np.ma.masked_array(np.ones(miz.data.shape), mask=~miz)    
+sept_miz = np.ma.masked_array(np.ones(miz.data.shape), mask=~miz | idx_mask)    
 
 apr_pack_ice = (ds_april_mean['cdr_seaice_conc'] >= 0.85) & (ds_april_mean['cdr_seaice_conc'] <= 1)
 apr_pack_ice = np.ma.masked_array(np.ones(apr_pack_ice.data.shape), mask=~apr_pack_ice)    
 
 sep_pack_ice = (ds_sept_mean['cdr_seaice_conc'] >= 0.85) & (ds_sept_mean['cdr_seaice_conc'] <= 1)
-sep_pack_ice = np.ma.masked_array(np.ones(sep_pack_ice.data.shape), mask=~sep_pack_ice)    
+sep_pack_ice = np.ma.masked_array(np.ones(sep_pack_ice.data.shape), mask=~sep_pack_ice | idx_mask)    
 
 
 ax.pcolormesh(X, Y, apr_pack_ice, vmin=0, vmax=1, color='blue1', alpha=1,
@@ -103,4 +114,4 @@ for region in regions.index:
 ax.text(100, 69, 'Arctic Circle', color='lightgray', transform=ccrs.PlateCarree(), rotation=-40)
 
 ax.plot(np.linspace(0, 360, 100), np.ones(100)*66.3, ls='-.', color='light gray')
-fig.save('../figures/sample_locations_map.png', dpi=300)
+fig.save('../figures/fig_01_sample_locations_map.png', dpi=300)
