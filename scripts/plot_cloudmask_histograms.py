@@ -32,8 +32,9 @@ df.groupby('region').count()
 df['start_date'] = pd.to_datetime(df['start_date'].values)
 df.index = [cn + '_' + sat for cn, sat in zip(df.case_number, df.satellite)]
 
-# Divide into testing and training datasets
-training_idx = df.sample(frac=2/3, random_state=97234).sort_index().index
+# Divide into testing and training datasets based on case number
+training_cases = df.loc[df.satellite == 'aqua'].sample(frac=2/3, random_state=97234)['case_number'].values
+training_idx = [x for x in df.index if df.loc[x, 'case_number'] in training_cases]
 df['training'] = False
 df.loc[training_idx, 'training'] = True
 
@@ -288,21 +289,20 @@ for row, rowdata in df.iterrows():
     land = np.sum(lm_images[case], axis=0) > 1 # replace with boolean mask in the end
     
     if case in lb_images:
-        if rowdata.floe_obscuration in ['none', 'light']:
-            ice_floes = lb_images[case][0,:,:] > 0
-            fast_ice = lf_images[case][0,:,:] > 0
-            ## Alternatively can use landfast ice to train the algorithm
-            ## Note though that landfast ice is often brighter than floes
-            # ice_nocloud_pixels = (ice_floes | fast_ice) & ~modis_cloud
-            # ice_cloud_pixels = (ice_floes | fast_ice) & modis_cloud                
- 
-            ice_nocloud_pixels = ice_floes & ~modis_cloud
-            ice_cloud_pixels = ice_floes & modis_cloud                
-            
-            for band in data:
-                pixel_data['clearsky_ice'][band].append(data[band][ice_nocloud_pixels])
+        
+        ice_floes = lb_images[case][0,:,:] > 0
+        fast_ice = lf_images[case][0,:,:] > 0
+         
+        ice_nocloud_pixels = ice_floes & ~modis_cloud
+        ice_cloud_pixels = ice_floes & modis_cloud                
+        
+        for band in data:
+            pixel_data['clearsky_ice'][band].append(data[band][ice_nocloud_pixels])
+            if rowdata.floe_obscuration in ['none', 'light']:
                 pixel_data['cloudy_ice'][band].append(data[band][ice_cloud_pixels])
-            pixel_data['clearsky_ice']['case'].append([case] * ice_nocloud_pixels.astype(int).sum().sum())
+
+        pixel_data['clearsky_ice']['case'].append([case] * ice_nocloud_pixels.astype(int).sum().sum())
+        if rowdata.floe_obscuration in ['none', 'light']:
             pixel_data['cloudy_ice']['case'].append([case] * ice_cloud_pixels.astype(int).sum().sum())
 
     elif rowdata.visible_sea_ice == 'no':
@@ -332,7 +332,10 @@ for s in pixel_data:
 
 fig, axs = pplt.subplots(ncols=3, refwidth=2.3, share=False)
 
-for ax, category, color in zip(axs, ['cloudy', 'cloudy_ice', 'clearsky_ice'], ['steelblue', 'tangerine', 'tab:green']):
+for ax, category, title, color in zip(axs,
+                                      ['cloudy', 'cloudy_ice', 'clearsky_ice'],
+                                      ['Cloud', 'Sea Ice (Thin Clouds)', 'Sea Ice (Clear Sky)'],
+                                      ['steelblue', 'tangerine', 'tab:green']):
 
     idx = pixel_data[category].training
     x = pixel_data[category].loc[idx, 'b2']
@@ -364,7 +367,7 @@ for ax, category, color in zip(axs, ['cloudy', 'cloudy_ice', 'clearsky_ice'], ['
                levels=levels, lw=1, color='k')
   
     ax.format(titleabove=True,
-              title=category.replace('_', ' ').title(),
+              title=title,
               ylim=(0, 255), xlim=(0, 255),
               xlabel='Band 2')
     py = ax.panel('r', space=0)

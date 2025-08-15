@@ -29,7 +29,7 @@ The calibration and initial validation of the tracking module is carried out usi
 Coding steps
 1. Add script to generate floe property tables and save the tables in the calval_tgrs folder. Added, but still need a few details -- need the pass times, and need the
 2. Add script to add pass-times to the property tables.
-3. Add cloud fraction property to the exported property tables
+3. DONE: Add cloud fraction property to the exported property tables
 4. Merge exported property tables with the IFT exported "matched pairs" tests
 5. In the visualizations for ADR, SD, and psi-s correlation, distinguish the cloud-obscured and clear-sky floes
 6. Update the regionprops_table to include calculations of floe-average cloud fraction, band 7 and band 2 reflectance, etc.

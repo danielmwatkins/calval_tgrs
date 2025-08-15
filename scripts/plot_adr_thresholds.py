@@ -5,8 +5,33 @@ import numpy as np
 
 # Define the area bin edges
 bins = np.logspace(1, 4, base=10, num=20)
-plot_range = (4.5, 14.5)
-# bins = np.logspace(0.84, 2, base=10, num=20)
+plot_range = (5.5, 13.5)
+
+# Load floe property tables. First need to run get_floe_property_tables.jl.
+df_aqua_props = []
+for file in os.listdir('../data/floe_property_tables/aqua/'):
+    if 'csv' in file:
+        df_temp = pd.read_csv('../data/floe_property_tables/aqua/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp['case'] = file.split('-')[0]
+        df_aqua_props.append(df_temp)
+df_aqua_props = pd.concat(df_aqua_props)
+df_aqua_props['label'] = df_aqua_props['label'].astype(int)
+df_aqua_props.rename({'label': 'aqua_label', 'cloud_fraction': 'aqua_cloud_fraction'}, axis=1, inplace=True)
+
+df_terra_props = []
+for file in os.listdir('../data/floe_property_tables/terra/'):
+    if 'csv' in file:
+        df_temp = pd.read_csv('../data/floe_property_tables/terra/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp['case'] = file.split('-')[0]
+        df_terra_props.append(df_temp)
+df_terra_props = pd.concat(df_terra_props)
+df_terra_props['label'] = df_terra_props['label'].astype(int)
+df_terra_props.rename({'label': 'terra_label', 'cloud_fraction': 'terra_cloud_fraction'}, axis=1, inplace=True)
+
+# Get test/train index data
+df_testtrain = pd.read_csv('../data/validation_dataset_testtrain_split.csv').rename({'Unnamed: 0': 'case'}, axis=1)
+df_testtrain['case_number'] = [str(x).zfill(3) for x in df_testtrain['case_number']]
+
 
 #### Load the rotation data ######
 # First need to run the julia script rotation_test_floe_shapes_ADR.jl
@@ -29,30 +54,24 @@ comp_columns = ['area', 'convex_area', 'major_axis_length', 'minor_axis_length',
 
 df_max = df_all.groupby('floe_id').max()[comp_columns]
 df_max.columns = df_max.add_prefix('max_', axis=1).columns
-df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'area', 'L', 'convex_area', 'major_axis_length',
+df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'area', 'L', 'convex_area', 'major_axis_length',
        'minor_axis_length']].set_index('floe_id')
 df_rotation = pd.merge(df_init, df_max, left_index=True, right_index=True)
-
-# df_rotation['length_bin'] = np.digitize(df_rotation['L'], bins)
 df_rotation['area_bin'] = np.digitize(df_rotation['area'], bins)
 
 # Divide into testing and training datasets
-training_idx = df_rotation.sample(frac=2/3, random_state=4203).sort_index().index
+training_idx = df_testtrain.loc[df_testtrain.satellite == 'aqua', ['case_number', 'training']].set_index('case_number')
 df_rotation['training'] = False
-df_rotation.loc[training_idx, 'training'] = True
-
-# could make this a function
-df_rot = df_rotation.loc[training_idx, :].copy()
-
-# bin_length_count = df[['length_bin', 'L']].groupby('length_bin').mean()
-# bin_length_count['count'] = df[['length_bin', 'L']].groupby('length_bin').count()['L']
+df_rotation.loc[training_idx.loc[df_rotation['case']].values.squeeze(), 'training'] = True
+df_rot = df_rotation.loc[df_rotation.training, :].copy()
 
 rotated_bin_count = df_rot[['area_bin', 'area']].groupby('area_bin').agg(['mean', 'count'])
 rotated_bin_count.columns = ['_'.join(col).strip() for col in rotated_bin_count.columns.values]
 
 
 #### Load the matched pairs data ######
-# First need to run the julia script matched_pairs_test_floe_shapes.jl
+# First need to run the julia scripts matched_pairs_test_floe_shapes.jl and get_floe_property_tables.jl
+
 data = []
 for fname in os.listdir('../data/matched_pairs_test/'):
     if '.csv' in fname:
@@ -70,13 +89,15 @@ df_matched = df_matched.loc[df_matched.area > 50]
 df_matched["L"] = np.sqrt(df_matched.area)
 
 df_matched['area_bin'] = np.digitize(df_matched['area'], bins)
+df_matched = df_matched.merge(
+    df_aqua_props, left_on=['case', 'aqua_label'], right_on=['case', 'aqua_label']).merge(
+    df_terra_props, left_on=['case', 'terra_label'], right_on=['case', 'terra_label'])
 
 # Divide into testing and training datasets
-training_idx = df_matched.sample(frac=2/3, random_state=4204).sort_index().index
-df_matched['training'] = False
-df_matched.loc[training_idx, 'training'] = True
+training_idx = df_testtrain.loc[df_testtrain.satellite == 'aqua', ['case_number', 'training']].set_index('case_number')
+df_matched['training'] = training_idx.loc[df_matched['case']].values
 
-df_mg = df_matched.loc[training_idx, :].copy()
+df_mg = df_matched.loc[df_matched.training, :].copy()
 
 matched_bin_count = df_matched[['area_bin', 'area']].groupby('area_bin').agg(['mean', 'count'])
 matched_bin_count.columns = ['_'.join(col).strip() for col in matched_bin_count.columns.values]
@@ -117,8 +138,10 @@ h = []
 for var, color, offset in zip(['adr_area', 'adr_convex_area', 'adr_major_axis_length', 'adr_minor_axis_length'],
                       ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
                              np.linspace(-0.3, 0.3, 4)):
+
+    idx = df_mg[['terra_cloud_fraction', 'aqua_cloud_fraction']].max(axis=1) < 0.2
     
-    plot_data = df_mg.pivot_table(columns='area_bin', values=var, index=df_mg.index)
+    plot_data = df_mg.loc[idx, :].pivot_table(columns='area_bin', values=var, index=df_mg.loc[idx, :].index)
     plot_data = plot_data.loc[:, matched_bin_count['area_count'] > 10]
     x = plot_data.columns.astype(int)
     plot_data.columns = plot_data.columns + offset

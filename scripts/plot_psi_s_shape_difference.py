@@ -5,7 +5,33 @@ import numpy as np
 
 # Define the area bin edges
 bins = np.logspace(1, 4, base=10, num=20)
-plot_range = (4.5, 13.5)
+plot_range = (5.5, 13.5)
+
+# Load floe property tables. First need to run get_floe_property_tables.jl.
+df_aqua_props = []
+for file in os.listdir('../data/floe_property_tables/aqua/'):
+    if 'csv' in file:
+        df_temp = pd.read_csv('../data/floe_property_tables/aqua/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp['case'] = file.split('-')[0]
+        df_aqua_props.append(df_temp)
+df_aqua_props = pd.concat(df_aqua_props)
+df_aqua_props['label'] = df_aqua_props['label'].astype(int)
+df_aqua_props.rename({'label': 'aqua_label', 'cloud_fraction': 'aqua_cloud_fraction'}, axis=1, inplace=True)
+
+df_terra_props = []
+for file in os.listdir('../data/floe_property_tables/terra/'):
+    if 'csv' in file:
+        df_temp = pd.read_csv('../data/floe_property_tables/terra/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp['case'] = file.split('-')[0]
+        df_terra_props.append(df_temp)
+df_terra_props = pd.concat(df_terra_props)
+df_terra_props['label'] = df_terra_props['label'].astype(int)
+df_terra_props.rename({'label': 'terra_label', 'cloud_fraction': 'terra_cloud_fraction'}, axis=1, inplace=True)
+
+# Get test/train index data
+df_testtrain = pd.read_csv('../data/validation_dataset_testtrain_split.csv').rename({'Unnamed: 0': 'case'}, axis=1)
+df_testtrain['case_number'] = [str(x).zfill(3) for x in df_testtrain['case_number']]
+
 
 #### Load the rotation data ######
 # First need to run the julia script rotation_test_floe_shapes.jl
@@ -25,19 +51,25 @@ df_all["L"] = np.sqrt(df_all.area)
 df_max = df_all[['floe_id', 'minimum_shape_difference']].groupby('floe_id').max()
 df_min = df_all[['floe_id', 'psi_s_correlation']].groupby('floe_id').min()
 df_min.columns = df_min.add_prefix('min_', axis=1).columns
-df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'area', 'perimeter']].set_index('floe_id')
+df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'area', 'perimeter']].set_index('floe_id')
 df_rotation = pd.merge(df_init, df_min, left_index=True, right_index=True).merge(df_max, left_index=True, right_index=True)
 
 # df_rotation['length_bin'] = np.digitize(df_rotation['L'], bins)
 df_rotation['area_bin'] = np.digitize(df_rotation['area'], bins)
 
 # Divide into testing and training datasets
-training_idx = df_rotation.sample(frac=2/3, random_state=4203).sort_index().index
+training_idx = df_testtrain.loc[df_testtrain.satellite == 'aqua', ['case_number', 'training']].set_index('case_number')
 df_rotation['training'] = False
-df_rotation.loc[training_idx, 'training'] = True
+df_rotation.loc[training_idx.loc[df_rotation['case']].values.squeeze(), 'training'] = True
+df_rot = df_rotation.loc[df_rotation.training, :].copy()
+
+
+# Normalize by perimeter
 df_rotation['normalized_shape_difference'] = df_rotation['minimum_shape_difference'] / df_rotation['perimeter']
-rotation_bin_count = df_rotation.loc[training_idx, :][['area_bin', 'area']].groupby('area_bin').mean()
-rotation_bin_count['count'] = df_rotation.loc[training_idx, :][['area_bin', 'area']].groupby('area_bin').count()['area']
+
+# Determine bin counts
+rotation_bin_count = df_rot[['area_bin', 'area']].groupby('area_bin').mean()
+rotation_bin_count['count'] = df_rot[['area_bin', 'area']].groupby('area_bin').count()['area']
 
 #### Load the matched pairs data ######
 # First need to run the julia script matched_pairs_test_floe_shapes.jl
@@ -60,12 +92,22 @@ df_matched["L"] = np.sqrt(df_matched.area)
 df_matched['area_bin'] = np.digitize(df_matched['area'], bins)
 
 # Divide into testing and training datasets
-training_idx = df_matched.sample(frac=2/3, random_state=4203).sort_index().index
-df_matched['training'] = False
-df_matched.loc[training_idx, 'training'] = True
+training_idx = df_testtrain.loc[df_testtrain.satellite == 'aqua', ['case_number', 'training']].set_index('case_number')
+df_matched['training'] = training_idx.loc[df_matched['case']].values
+df_mg = df_matched.loc[df_matched.training, :]
 
-matched_bin_count = df_matched.loc[training_idx, :][['area_bin', 'area']].groupby('area_bin').mean()
-matched_bin_count['count'] = df_matched.loc[training_idx, :][['area_bin', 'area']].groupby('area_bin').count()['area']
+matched_bin_count = df_mg[['area_bin', 'area']].groupby('area_bin').mean()
+matched_bin_count['count'] = df_mg[['area_bin', 'area']].groupby('area_bin').count()['area']
+
+
+
+
+
+
+
+
+
+
 
 #### Plot ####
 fig, axs = pplt.subplots(width=8, height=6, nrows=2, share=False, ncols=2)
