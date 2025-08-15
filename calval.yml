@@ -1,4 +1,4 @@
-name: 'calval2'
+name: 'calval'
 channels:
   - conda-forge
   - defaults
@@ -14,6 +14,6 @@ dependencies:
   - rasterio
   - scikit-image
   - scikit-learn
-prefix: /opt/miniconda3/envs/calval2
+prefix: /opt/miniconda3/envs/calval
 
 

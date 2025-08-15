@@ -5,7 +5,7 @@ import numpy as np
 
 # Define the area bin edges
 bins = np.logspace(1, 4, base=10, num=20)
-plot_range = (4.5, 13.5)
+plot_range = (4.5, 14.5)
 # bins = np.logspace(0.84, 2, base=10, num=20)
 
 #### Load the rotation data ######
@@ -17,7 +17,7 @@ for fname in os.listdir('../data/rotation_test/'):
         df['case'] = fname.split('-')[0].replace('.csv', '')
         if len(df) > 0:
             data.append(df)
-df_all = pd.concat(data)
+df_all = pd.concat(data).reset_index(drop=True)
 df_all['floe_id'] = [cn + '_' + str(f).zfill(4) for cn, f in zip(
                                 df_all['case'], df_all['floe_id'])]
 df_all = df_all.loc[df_all.area > 50]
@@ -47,66 +47,8 @@ df_rot = df_rotation.loc[training_idx, :].copy()
 # bin_length_count = df[['length_bin', 'L']].groupby('length_bin').mean()
 # bin_length_count['count'] = df[['length_bin', 'L']].groupby('length_bin').count()['L']
 
-bin_count = df_rot[['area_bin', 'area']].groupby('area_bin').mean()
-bin_count['count'] = df_rot[['area_bin', 'area']].groupby('area_bin').count()['area']
-
-
-
-#### Load the data both for the matches and for the inital images #####
-# dataloc = '/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/data/validation_dataset/'
-
-# files = os.listdir(dataloc + 'property_tables/matched/')
-# data = []
-# for f in files:
-#     if '.csv' in f:
-#         data.append(pd.read_csv(dataloc + 'property_tables/matched/' + f))
-# df_matched = pd.concat(data)
-
-# files = os.listdir(dataloc + '/property_tables/aqua/')
-# data = []
-# for f in files:
-#     if '.csv' in f:
-#         data.append(pd.read_csv(dataloc + '/property_tables/aqua/' + f))
-# df_aqua = pd.concat(data)
-
-
-# files = os.listdir(dataloc + '/property_tables/terra/')
-# data = []
-# for f in files:
-#     if '.csv' in f:
-#         data.append(pd.read_csv(dataloc + '/property_tables/terra/' + f))
-# df_terra = pd.concat(data)
-
-# df_matched = df_matched.dropna()
-# df_matched['case_number'] = [str(int(x)).zfill(3) for x in df_matched['case_number']]
-# df_terra['case_number'] = [str(int(x)).zfill(3) for x in df_terra['case_number']]
-# df_aqua['case_number'] = [str(int(x)).zfill(3) for x in df_aqua['case_number']]
-
-# df_merged = df_matched.merge(df_aqua[['label', 'case_number', 'axis_major_length', 'axis_minor_length', 'convex_area']], 
-#                  left_on=['aqua_label', 'case_number'], right_on=['label', 'case_number'],
-#                  suffixes=[None, '_aqua'], how='inner').merge(
-#     df_terra[['label', 'case_number', 'axis_major_length', 'axis_minor_length', 'convex_area']], 
-#                  left_on=['terra_label', 'case_number'], right_on=['label', 'case_number'],
-#                  suffixes=[None, '_terra'], how='inner')
-# df_merged.rename({'axis_major_length': 'axis_major_length_aqua',
-#                   'axis_minor_length': 'axis_minor_length_aqua',
-#                   'aqua_area': 'area_aqua',
-#                   'terra_area': 'area_terra',
-#                   'convex_area': 'convex_area_aqua'}, axis=1, inplace=True)
-
-# #### Compute ADRs ####
-# df_merged['adr_area'] = np.abs(df_merged['area_aqua'] - df_merged['area_terra'])/(df_merged['area_aqua'] + df_merged['area_terra'])
-# df_merged['adr_major_axis_length'] = np.abs(df_merged['axis_major_length_aqua'] - df_merged['axis_major_length_terra'])/(df_merged['axis_major_length_aqua'] + df_merged['axis_major_length_terra'])
-# df_merged['adr_minor_axis_length'] = np.abs(df_merged['axis_minor_length_aqua'] - df_merged['axis_minor_length_terra'])/(df_merged['axis_minor_length_aqua'] + df_merged['axis_minor_length_terra'])
-# df_merged['adr_convex_area'] = np.abs(df_merged['convex_area_aqua'] - df_merged['convex_area_terra'])/(df_merged['convex_area_aqua'] + df_merged['convex_area_terra'])
-
-# df_merged['area'] = 1/2*(df_merged['area_aqua'] + df_merged['area_terra'])
-# df_merged['L'] = np.sqrt(df_merged['area'])
-# df_merged['area_bin'] = np.digitize(df_merged['area'], bins)
-
-# df_merged = df_merged.loc[df_merged.area > 50].copy()
-# merged_bin_count = df_merged[['area_bin', 'area']].groupby('area_bin').mean()
-# merged_bin_count['count'] = df_merged[['area_bin', 'area']].groupby('area_bin').count()['area']
+rotated_bin_count = df_rot[['area_bin', 'area']].groupby('area_bin').agg(['mean', 'count'])
+rotated_bin_count.columns = ['_'.join(col).strip() for col in rotated_bin_count.columns.values]
 
 
 #### Load the matched pairs data ######
@@ -118,7 +60,7 @@ for fname in os.listdir('../data/matched_pairs_test/'):
         df['case'] = fname.split('-')[0].replace('.csv', '')
         if len(df) > 0:
             data.append(df)
-df_matched = pd.concat(data)
+df_matched = pd.concat(data).reset_index(drop=True)
 df_matched['floe_id'] = [cn + '_' + str(f).zfill(4) for cn, f in zip(
                                 df_matched['case'], df_matched['aqua_label'])]
 df_matched['area'] = df_matched[['aqua_area', 'terra_area']].mean(axis=1)
@@ -129,16 +71,15 @@ df_matched["L"] = np.sqrt(df_matched.area)
 
 df_matched['area_bin'] = np.digitize(df_matched['area'], bins)
 
-
-
-
 # Divide into testing and training datasets
 training_idx = df_matched.sample(frac=2/3, random_state=4204).sort_index().index
 df_matched['training'] = False
 df_matched.loc[training_idx, 'training'] = True
 
-# could make this a function
 df_mg = df_matched.loc[training_idx, :].copy()
+
+matched_bin_count = df_matched[['area_bin', 'area']].groupby('area_bin').agg(['mean', 'count'])
+matched_bin_count.columns = ['_'.join(col).strip() for col in matched_bin_count.columns.values]
 
 
 #### Plot ####
@@ -150,10 +91,10 @@ for var, color, offset in zip(['max_adr_area', 'max_adr_convex_area',
                       ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
                              np.linspace(-0.3, 0.3, 4)):
     plot_data = df_rot.pivot_table(columns='area_bin', values=var, index=df_rot.index)
-    plot_data = plot_data.loc[:, bin_count['count'] > 10]
+    plot_data = plot_data.loc[:, rotated_bin_count['area_count'] > 10]
     x = plot_data.columns.astype(int)
     plot_data.columns = plot_data.columns + offset
-    ax.box(plot_data, fillcolor=color, showfliers=False, widths=0.2)
+    ax.box(plot_data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=0.2)
     h.append(ax.plot([],[], m='s', c=color, lw=0, ec='k'))
 
     # Draw grid lines
@@ -162,7 +103,7 @@ for var, color, offset in zip(['max_adr_area', 'max_adr_convex_area',
         
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
           xlocator=x, xlim=plot_range, ylim=(0, 0.3),
-          xformatter=[str(int(x)) for x in bin_count.area.round().values.squeeze()], xrotation=0,
+          xformatter=[str(int(x)) for x in rotated_bin_count.area_mean.round().values.squeeze()], xrotation=0,
          title='Rotation', xlabel='Bin-average floe area (pixels)', ylabel='ADR',
          xgrid=False)
 
@@ -176,22 +117,19 @@ h = []
 for var, color, offset in zip(['adr_area', 'adr_convex_area', 'adr_major_axis_length', 'adr_minor_axis_length'],
                       ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
                              np.linspace(-0.3, 0.3, 4)):
-
-    merged_bin_count = df_mg[['area_bin', 'area']].groupby('area_bin').mean()
-    merged_bin_count['count'] = df_mg[['area_bin', 'area']].groupby('area_bin').count()['area']
-
+    
     plot_data = df_mg.pivot_table(columns='area_bin', values=var, index=df_mg.index)
-    plot_data = plot_data.loc[:, merged_bin_count['count'] > 10]
+    plot_data = plot_data.loc[:, matched_bin_count['area_count'] > 10]
     x = plot_data.columns.astype(int)
     plot_data.columns = plot_data.columns + offset
-    ax.box(plot_data, fillcolor=color, showfliers=False, widths=0.2)
+    ax.box(plot_data, fillcolor=color,  showfliers=True, marker='.', markersize=1,  widths=0.2)
     h.append(ax.plot([],[], m='s', c=color, lw=0, ec='k'))
     for xc in x[:-1]:
         ax.axvline(xc + 0.5, lw=1, color='gray')
         
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
           xlocator=x, xlim=plot_range, ylim=(0, 0.3),
-          xformatter=[str(int(x)) for x in merged_bin_count.area.round(1).values.squeeze()], xrotation=0,
+          xformatter=[str(int(x)) for x in matched_bin_count.area_mean.round(1).values.squeeze()], xrotation=0,
          title='Matched Pairs', xlabel='Bin-average floe area (pixels)', ylabel='ADR',
          xgrid=False)
 
