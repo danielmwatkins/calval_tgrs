@@ -1,10 +1,11 @@
-import proplot as pplt
+import ultraplot as pplt
 import pandas as pd
 import numpy as np
 import cartopy.crs as ccrs
 import os
 
-df = pd.read_csv('../data/validation_dataset/validation_dataset.csv', parse_dates=['start_date'])
+ice_floe_dataset = '../../ice_floe_validation_dataset/'
+df = pd.read_csv(ice_floe_dataset + '/data/validation_dataset/validation_dataset.csv', parse_dates=['start_date'])
 df['month'] = df['start_date'].dt.month
 df = df.loc[df.satellite=='aqua']
 df.index = [str(x).zfill(3) for x in df.case_number]
@@ -13,9 +14,9 @@ import pandas as pd
 fsd_data = {}
 for satellite in ['aqua', 'terra']:
     fsd_data[satellite] = {}
-    for file in os.listdir('../data/validation_dataset/property_tables/' + satellite):
+    for file in os.listdir(ice_floe_dataset + '/data/validation_dataset/property_tables/' + satellite):
         if 'csv' in file:
-            df_fsd = pd.read_csv('../data/validation_dataset/property_tables/' + satellite + '/' + file)
+            df_fsd = pd.read_csv(ice_floe_dataset + '/data/validation_dataset/property_tables/' + satellite + '/' + file)
             if len(df_fsd) > 0:
                 df_fsd['region'] = file.split('-')[1]
                 df_fsd['date'] = pd.to_datetime(file.split('-')[2])
@@ -29,7 +30,7 @@ df_terra_fsd.rename({'level_0': 'case_number'}, axis=1, inplace=True)
 df_aqua_fsd.head()
 
 
-regions = pd.read_csv('../data/metadata/region_definitions.csv', index_col=0)
+regions = pd.read_csv(ice_floe_dataset + '/data/metadata/region_definitions.csv', index_col=0)
 
 colors = {region: c['color'] for region, c in zip(
             regions.index,
@@ -63,7 +64,7 @@ for idx, region, lat, lon in zip(range(len(regions)), regions.index, regions.cen
     xbox = np.array(regions.loc[region, ['left_x', 'left_x', 'right_x', 'right_x', 'left_x']].astype(float))
     ybox = np.array(regions.loc[region, ['lower_y', 'upper_y', 'upper_y', 'lower_y', 'lower_y']].astype(float))
     
-    ax.plot(xbox, ybox, transform=ccrs.CRS('epsg:3413'),
+    ax.plot(xbox, ybox, transform=crs,
             label='({n}) {t}'.format(n=idx + 1, t=regions.loc[region, 'print_title']), 
                color=colors[region], ls=linestyles[region], m='', zorder=5, lw=1.5)
     
@@ -95,7 +96,8 @@ fig.legend(ncols=1, alpha=1, loc='r', order='F')
 # Bar chart
 ax = axs[0]
 
-df = pd.read_csv('../data/validation_dataset/validation_dataset.csv', parse_dates=['start_date'])
+# Reload dataframe to include terra also
+df = pd.read_csv(ice_floe_dataset + '/data/validation_dataset/validation_dataset.csv', parse_dates=['start_date'])
 df['month'] = df['start_date'].dt.month
 df.index = [str(x).zfill(3) for x in df.case_number]
 
