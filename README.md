@@ -19,6 +19,8 @@ The main source of data is the random sample dataset, which is in the folder `ev
 - add psi-s correlation and perimeter to the rotation test script
 - add a script to carry out the matched pairs analysis
 
+# Calibrating the sea ice segmentation routine
+
 
 # Calibrating the tracking module
 The calibration and initial validation of the tracking module is carried out using the floes in the validation dataset. We need to understand how the tracking performance is affected by uncertainty in the floe boundary.  For this reason we need to take the set of tracked floes, and select floes based on the confidence in the boundary. 
