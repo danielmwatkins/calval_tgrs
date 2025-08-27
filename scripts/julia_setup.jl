@@ -2,7 +2,16 @@
 
 using Pkg;
 Pkg.activate("cal-val")
-Pkg.add(["IJulia", "IceFloeTracker", "DataFrames", "CairoMakie", "CSV", "Interpolations", "Images", "ImageSegmentation"])
+Pkg.add(["IJulia",
+        "IceFloeTracker",
+        "DataFrames",
+        "CairoMakie",
+        "CSV",
+        "CSVFiles",
+        "Interpolations",
+        "Images",
+        "ImageSegmentation",
+        "FileIO"])
 Pkg.build()
 Pkg.resolve()
 Pkg.instantiate()
