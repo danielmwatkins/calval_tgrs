@@ -6,12 +6,23 @@ Calibration and validation code for the IFT TGRS manuscript. Setup:
 - Run the julia_setup.jl script
 
 # data
-The main source of data is the random sample dataset, which is in the folder `eval_seg`.
+The IFT is calibrated using the (Ice Floe Validation Dataset)[https://github.com/danielmwatkins/ice_floe_validation_dataset] which contains 100 km by 100 km images from the circumpolar Arctic MIZs.
+* TBD: Update the code to use the IFT data loader once it is included in the registry version.
 
 # components
 ## cloud mask
-- questions about aligning the dataset so that spatial error can be calculated
-- scatter plot based on the band 7 to band 2 scatter plot
+Notebook: `cloudmask_callibration.ipynb`  
+Walks through the algorithm options, methodology, and provides example images and comparisons beyond what is used in the paper.
+
+Script: `calibrate_cloudmask_plot_histograms.py`.  
+Reads in the image data, computes and plots the cloudmask algorithms. Cloudmask settings are copied from the notebook.
+
+## preprocessing and tiling
+* TBD: Clean up the tiling algorithm to use cloud fraction and image contrast (or entropy?) to determine whether to equalize the histogram. Still need to determine whether any settings of the morphological operations need to be changed.
+
+## segmentation
+Segmentation of the image includes a few steps that are considered individually. We use a combination of approaches to 
+
 
 # tbd
 - finish analysis of IABP data for distance measure
