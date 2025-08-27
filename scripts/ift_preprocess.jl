@@ -6,7 +6,7 @@ data_dir = "../../ice_floe_validation_dataset/data/"
 save_dir = "../data/validation_dataset/"
 
 # Specifying an environment makes it easier to work with package versions
-Pkg.activate(joinpath(home_dir, "notebooks/calval"))
+Pkg.activate(joinpath(home_dir, "scripts/cal-val"))
 
 using IceFloeTracker
 using Images
@@ -23,13 +23,14 @@ cloud_mask_settings = (
     band_7_threshold=130.0/255.,
     band_2_threshold=169.0/255.,
     ratio_lower=0.0,
+    ratio_offset=0.0,
     ratio_upper=0.53
 )
 
 adjust_gamma_params = (gamma=1.5, gamma_factor=1.3, gamma_threshold=220)
 
 structuring_elements = (
-    se_disk1=collect(IceFloeTracker.MorphSE.StructuringElements.strel_diamond((3, 3))),
+    se_disk1=IceFloeTracker.structuring_elements.se_disk1,
     se_disk2=IceFloeTracker.se_disk2(),
     se_disk4=IceFloeTracker.se_disk4(),
 )
@@ -42,7 +43,7 @@ adapthisteq_params = (
     white_threshold=25.5, entropy_threshold=4, white_fraction_threshold=0.4
 )
 
-
+LACM = IceFloeTracker.LopezAcostaCloudMask(cloud_mask_settings...)
 for row in eachrow(df)
     case_number = lpad(row[:case_number], 3, "0")
     region = row[:region]
@@ -61,10 +62,10 @@ for row in eachrow(df)
     tc_image = float64.(RGB.(load(joinpath(data_dir, "modis", "truecolor", tc_filename))))
 
     # generate cloudmask
-    cloudmask = IceFloeTracker.create_cloudmask(fc_image; cloud_mask_settings...)
+    cloudmask = IceFloeTracker.create_cloudmask(fc_image, LACM)
     fc_img_cloudmasked = IceFloeTracker.apply_cloudmask(fc_image, cloudmask)
 
-    # generate landmask
+    # generate landmask (TBD: Check if landmask has land=1 convention)
     landmask = IceFloeTracker.create_landmask(lm_image)
     
     # treat image as a single tile
@@ -82,7 +83,7 @@ for row in eachrow(df)
     # apply cloudmask
     masks = [f.(fc_img_cloudmasked) .== 0 for f in [red, green, blue]]
     combo_mask = reduce((a, b) -> a .& b, masks)
-    equalized_gray[.!cloudmask] .= 0;
+    equalized_gray[cloudmask] .= 0;
 
     # sharpen and reconstruct
     sharpened = IceFloeTracker.to_uint8(IceFloeTracker.unsharp_mask(equalized_gray, unsharp_mask_params...))
@@ -117,8 +118,8 @@ for row in eachrow(df)
 
     # save results to file
     Images.save(joinpath(save_dir, "morphological_residue", mr_savename),
-        Gray.(morphed_residue./255))
+        Gray.(morphed_residue ./ 255))
     Images.save(joinpath(save_dir, "cloudmask", cm_savename),
-        Gray.(cloudmask))
+        Gray.(cloudmask))  # Check this -- it's coming out blank
 end
 
