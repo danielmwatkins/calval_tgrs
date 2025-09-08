@@ -1,4 +1,5 @@
 """Run the preprocessing script on the validation dataset to produce morphological residue"""
+# TBD: Set up methods to use the data loader functionality to run this.
 
 using Pkg
 home_dir = "../"
@@ -74,7 +75,7 @@ for row in eachrow(df)
 
     # generate band 7 image for equalized hist adjustment
     clouds_red = IceFloeTracker.to_uint8(float64.(red.(fc_img_cloudmasked) .* 255))
-    clouds_red[.!landmask.dilated] .= 0;
+    clouds_red[.!landmask.non_dilated] .= 0;
     rgbchannels = IceFloeTracker._process_image_tiles(
         tc_image, clouds_red, tiles, adapthisteq_params...);
     
@@ -90,20 +91,20 @@ for row in eachrow(df)
     equalized_gray_sharpened_reconstructed = IceFloeTracker.reconstruct(
             sharpened, structuring_elements.se_disk1, "dilation", true
         )
-    equalized_gray_sharpened_reconstructed[.!landmask.dilated] .= 0;
+    equalized_gray_sharpened_reconstructed[.!landmask.non_dilated] .= 0;
 
     # reconstruct without sharpening
     equalized_gray_reconstructed = deepcopy(equalized_gray)
-    equalized_gray_reconstructed[.!landmask.dilated] .= 0
+    equalized_gray_reconstructed[.!landmask.non_dilated] .= 0
     equalized_gray_reconstructed = IceFloeTracker.reconstruct(
         equalized_gray_reconstructed, structuring_elements.se_disk4, "dilation", true
     )
-    equalized_gray_reconstructed[.!landmask.dilated] .= 0;
+    equalized_gray_reconstructed[.!landmask.non_dilated] .= 0;
 
     # brighten green channel
     gammagreen = @view rgbchannels[:, :, 2];
     brighten = IceFloeTracker.get_brighten_mask(equalized_gray_reconstructed, gammagreen)
-    equalized_gray[.!landmask.dilated] .= 0
+    equalized_gray[.!landmask.non_dilated] .= 0
     equalized_gray .= IceFloeTracker.imbrighten(equalized_gray, brighten, brighten_factor)
 
     # compute morphological residue
