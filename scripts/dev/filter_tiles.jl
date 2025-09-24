@@ -16,6 +16,8 @@ percentage of land pixels. It is recommended that the percentage be adjusted bas
 tiles appears to give reasonably good results but it is likely that the function parameters will be different for larger tiles.
 """
 
+using StatsBase: mean, percentile
+
 """Compute the fraction of non-ocean pixels covered by cloud"""
 function ocean_cloud_fraction(cloudmask, landmask)
     lm = vec(landmask)
