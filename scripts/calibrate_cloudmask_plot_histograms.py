@@ -25,7 +25,8 @@ title_case = {'baffin_bay': 'Baffin Bay',
               'sea_of_okhostk': 'Sea of Okhostk'}
 
 # load the list of cloud clearing evaluation cases
-dataloc = '/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
+# dataloc = '/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
+dataloc = '../../ice_floe_validation_dataset/'
 df = pd.read_csv(dataloc + '/data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
 df.groupby('region').count()
@@ -394,4 +395,5 @@ for ax in axs:
         ax.plot(x, y, label=title, ls=ls, lw=2, color='k')
 
 ax.legend(ncols=1)
-fig.save('../figures/fig_05_cloud_mask_histograms_update.png', dpi=300)
+fig.format(abc=True)
+fig.save('../figures/fig_05_cloud_mask_histograms.png', dpi=300)
