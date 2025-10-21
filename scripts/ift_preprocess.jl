@@ -1,4 +1,4 @@
-"""Run the preprocessing script on the validation dataset to produce morphological residue"""
+"""Run the LopezTiling2019 preprocessing script on the validation dataset to produce morphological residue"""
 # TBD: Set up methods to use the data loader functionality to run this.
 
 using Pkg
