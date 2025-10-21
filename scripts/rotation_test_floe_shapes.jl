@@ -59,7 +59,7 @@ for fname in files
                    )
     floe_id = 1
     for floe_data in eachrow(props)
-        if floe_data["area"] >= 50
+        if floe_data["area"] >= 50 && floe_data["area"] <= 350^2 # had some errors where the background was treated as a floe
             im_init = copy(floe_data["mask"])
             
             # pad the floe to avoid changing floe area relative to image size
