@@ -1,4 +1,11 @@
-"""Access the matched pairs from the validation dataset and compute similarity metrics"""
+"""Access the matched pairs from the validation dataset and compute similarity metrics.
+Note that we multiply the absolute difference ratios so that its |X - Y|/|X + Y| rather than
+using the mean in the denominator, which results in smaller numbers than in the 2019 paper.
+
+This code was written with IFT version 0.9 in mind. When 1.0 is released, we should rewrite this
+to use the data loader.
+
+"""
 
 using Pkg;
 Pkg.activate("cal-val")
@@ -78,12 +85,14 @@ for file in files
                    aqua_minor_axis_length=Float64[],
                    aqua_perimeter=Float64[],
                    aqua_perimeter_crofton=Float64[],
+                   aqua_perimeter_boundary_pixels=Float64[],
                    terra_area=Float64[],
                    terra_convex_area=Float64[],
                    terra_major_axis_length=Float64[],
                    terra_minor_axis_length=Float64[],
                    terra_perimeter=Float64[],
                    terra_perimeter_crofton=Float64[],
+                   terra_perimeter_boundary_pixels=Float64[],
                    adr_area=Float64[],
                    adr_convex_area=Float64[],
                    adr_major_axis_length=Float64[],
@@ -108,6 +117,11 @@ for file in files
                 @warn "Build Psi-S failed: $e"
                 global psi_s_correlation = NaN
             end
+
+            # boundary pixel count
+            # Test experimentally whether this lets us have less area-dependency in the method.
+            bp_aqua = sum(IceFloeTracker.bwperim(padarray(row_aqua[1, :mask], Fill(0, (1, 1)))))
+            bp_terra = sum(IceFloeTracker.bwperim(padarray(row_terra[1, :mask], Fill(0, (1, 1)))))
             
             push!(df, (matches.aqua_label,
                        matches.terra_label,
@@ -117,12 +131,14 @@ for file in files
                        row_aqua[1, :minor_axis_length],
                        row_aqua[1, :perimeter],
                        row_aqua[1, :perimeter_crofton],
+                       bp_aqua,
                        row_terra[1, :area],
                        row_terra[1, :convex_area],
                        row_terra[1, :major_axis_length],
                        row_terra[1, :minor_axis_length],
                        row_terra[1, :perimeter],     
-                       row_terra[1, :perimeter_crofton],     
+                       row_terra[1, :perimeter_crofton],
+                       bp_terra,
                        0.5*absdiffmeanratio(row_aqua[1, :area], row_terra[1, :area]),
                        0.5*absdiffmeanratio(row_aqua[1, :convex_area], row_terra[1, :convex_area]),
                        0.5*absdiffmeanratio(row_aqua[1, :major_axis_length], row_terra[1, :major_axis_length]),
