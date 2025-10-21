@@ -64,8 +64,8 @@ df_rotation.loc[training_idx.loc[df_rotation['case']].values.squeeze(), 'trainin
 df_rot = df_rotation.loc[df_rotation.training, :].copy()
 
 
-# Normalize by perimeter
-df_rotation['normalized_shape_difference'] = df_rotation['minimum_shape_difference'] / df_rotation['perimeter']
+# Normalize by area
+df_rotation['normalized_shape_difference'] = df_rotation['minimum_shape_difference'] / df_rotation['area']
 
 # Determine bin counts
 rotation_bin_count = df_rot[['area_bin', 'area']].groupby('area_bin').mean()
@@ -84,8 +84,11 @@ df_matched = pd.concat(data)
 df_matched['floe_id'] = [cn + '_' + str(f).zfill(4) for cn, f in zip(
                                 df_matched['case'], df_matched['aqua_label'])]
 df_matched['area'] = df_matched[['aqua_area', 'terra_area']].mean(axis=1)
-df_matched['perimeter'] = df_matched[['aqua_perimeter', 'terra_perimeter']].mean(axis=1)
-df_matched['normalized_shape_difference'] = df_matched['minimum_shape_difference'] / df_matched['perimeter']
+# Standard perimeter
+# df_matched['perimeter'] = df_matched[['aqua_perimeter', 'terra_perimeter']].mean(axis=1)
+# Number of boundary pixels
+df_matched['perimeter'] = df_matched[['aqua_perimeter_boundary_pixels', 'terra_perimeter_boundary_pixels']].mean(axis=1)
+df_matched['normalized_shape_difference'] = df_matched['minimum_shape_difference'] / df_matched['area']
 df_matched = df_matched.loc[df_matched.area > 50]
 df_matched["L"] = np.sqrt(df_matched.area)
 
@@ -136,8 +139,8 @@ for ax, var, color, dataframe, bin_counts in zip(
               xformatter=[str(int(x)) for x in bin_counts.area.round().values.squeeze()], xrotation=0,
               xlabel='Bin-average floe area (pixels)',
               xgrid=False, abc=True)
-axs[0,0].format(ylabel=r'$\psi-s$ Correlation', title='Minimum Correlation Under Rotation', ylim=(0.49, 1.01))
-axs[1,0].format(ylabel=r'$\psi-s$ Correlation', title='Correlation Between Matched Pairs', ylim=(0.49, 1.01))
-axs[0,1].format(ylabel='Normalized Shape Difference', title='Max. Optimal Shape Difference Under Rotation', ylim=(-0.02, 1.02))
-axs[1,1].format(ylabel='Normalized Shape Difference', title='Optimal Shape Difference Between Matched Pairs', ylim=(-0.03, 3.03))
+axs[0,0].format(ylabel=r'$\psi-s$ Correlation', title='Minimum Correlation Under Rotation', ylim=(0.69, 1.01))
+axs[1,0].format(ylabel=r'$\psi-s$ Correlation', title='Correlation Between Matched Pairs', ylim=(0.69, 1.01))
+axs[0,1].format(ylabel='Normalized Shape Difference', title='Max. Optimal Shape Difference Under Rotation', ylim=(-0.02, 0.52))
+axs[1,1].format(ylabel='Normalized Shape Difference', title='Optimal Shape Difference Between Matched Pairs', ylim=(-0.02, 0.52))
 fig.save('../figures/fig_XX_correlation_shape_difference.png', dpi=300)
