@@ -3,8 +3,12 @@ import os
 import ultraplot as pplt
 import numpy as np
 
+#### Load Data ####
 # Define the area bin edges
-bins = np.logspace(1, 4, base=10, num=20)
+# bins = np.logspace(1, 4, base=10, num=20)
+# Using length scale bin instead
+bins = np.arange(0, 100, 10)
+bin_centers = 0.5 * (bins[1:] + bins[:-1])
 plot_range = (5.5, 13.5)
 
 # Load floe property tables. First need to run get_floe_property_tables.jl.
@@ -31,7 +35,6 @@ df_terra_props.rename({'label': 'terra_label', 'cloud_fraction': 'terra_cloud_fr
 # Get test/train index data
 df_testtrain = pd.read_csv('../data/validation_dataset_testtrain_split.csv').rename({'Unnamed: 0': 'case'}, axis=1)
 df_testtrain['case_number'] = [str(x).zfill(3) for x in df_testtrain['case_number']]
-
 
 #### Load the rotation data ######
 # First need to run the julia script rotation_test_floe_shapes_ADR.jl
@@ -62,7 +65,9 @@ df_min.columns = df_min.add_prefix('min_', axis=1).columns
 df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'area', 'L', 'convex_area', 'major_axis_length',
        'minor_axis_length']].set_index('floe_id')
 df_rotation = pd.merge(df_init, df_max, left_index=True, right_index=True).merge(df_min, left_index=True, right_index=True)
-df_rotation['area_bin'] = np.digitize(df_rotation['area'], bins)
+df_rotation['L'] = np.sqrt(df_rotation['area'])
+# df_rotation['area_bin'] = np.digitize(df_rotation['area'], bins)
+df_rotation['length_bin'] = np.digitize(df_rotation['L'], bins)
 
 # Divide into testing and training datasets
 training_idx = df_testtrain.loc[df_testtrain.satellite == 'aqua', ['case_number', 'training']].set_index('case_number')
@@ -70,13 +75,11 @@ df_rotation['training'] = False
 df_rotation.loc[training_idx.loc[df_rotation['case']].values.squeeze(), 'training'] = True
 df_rot = df_rotation.loc[df_rotation.training, :].copy()
 
-rotated_bin_count = df_rot[['area_bin', 'area']].groupby('area_bin').agg(['mean', 'count'])
+rotated_bin_count = df_rot[['length_bin', 'L']].groupby('length_bin').agg(['mean', 'count'])
 rotated_bin_count.columns = ['_'.join(col).strip() for col in rotated_bin_count.columns.values]
-
 
 #### Load the matched pairs data ######
 # First need to run the julia scripts matched_pairs_test_floe_shapes.jl and get_floe_property_tables.jl
-
 data = []
 for fname in os.listdir('../data/matched_pairs_test/'):
     if '.csv' in fname:
@@ -93,7 +96,7 @@ df_matched['normalized_shape_difference'] = df_matched['minimum_shape_difference
 df_matched = df_matched.loc[df_matched.area > 50]
 df_matched["L"] = np.sqrt(df_matched.area)
 
-df_matched['area_bin'] = np.digitize(df_matched['area'], bins)
+df_matched['length_bin'] = np.digitize(df_matched['L'], bins)
 df_matched = df_matched.merge(
     df_aqua_props, left_on=['case', 'aqua_label'], right_on=['case', 'aqua_label']).merge(
     df_terra_props, left_on=['case', 'terra_label'], right_on=['case', 'terra_label'])
@@ -102,92 +105,181 @@ df_matched = df_matched.merge(
 training_idx = df_testtrain.loc[df_testtrain.satellite == 'aqua', ['case_number', 'training']].set_index('case_number')
 df_matched['training'] = training_idx.loc[df_matched['case']].values
 
-df_mg = df_matched.loc[df_matched.training, :].copy()
-
-matched_bin_count = df_matched[['area_bin', 'area']].groupby('area_bin').agg(['mean', 'count'])
+df_mg = df_matched.loc[df_matched.training & (df_matched[['terra_cloud_fraction', 'aqua_cloud_fraction']].max(axis=1) < 0.4), :].copy()
+   
+matched_bin_count = df_matched[['length_bin', 'L']].groupby('length_bin').agg(['mean', 'count'])
 matched_bin_count.columns = ['_'.join(col).strip() for col in matched_bin_count.columns.values]
 
 
-#### Plot ####
-fig, axs = pplt.subplots(width=10, height=6, nrows=2, ncols=3, share=False)
+
+#### Settings #####
+n_min = 20
+length_min = 10
+length_max = 30
+xlims = (0.5, 50)
+x = np.linspace(xlims[0], xlims[1], 50)
+
+#### Threshold Functions #####
+def piecewise_threshold(x, x0, x1, y0, y1):
+    if x < x0:
+        return y0
+    elif x > x1:
+        return y1
+    else:
+        return (y1 - y0)/(x1 - x0)*(x - x1) + y1
+        
+# Update values below based on the calibration results (99th percentile for above / below value)
+adr_area_threshold = lambda x: np.array([piecewise_threshold(y, x0=length_min, x1=length_max, y0=0.27, y1=0.13) for y in x])
+adr_convex_area_threshold = lambda x: np.array([piecewise_threshold(y, length_min, length_max, 0.27, 0.13) for y in x])
+adr_major_axis_threshold = lambda x: np.array([piecewise_threshold(y, length_min, length_max, 0.16, 0.07) for y in x])
+adr_minor_axis_threshold = lambda x: np.array([piecewise_threshold(y,  length_min, length_max, 0.17, 0.11) for y in x])
+scaled_shape_difference_threshold = lambda x: np.array([piecewise_threshold(y, length_min,  length_max, 0.53, 0.30) for y in x])
+psi_s_corr_threshold = lambda x: np.array([piecewise_threshold(y, length_min,  length_max, 0.84, 0.93) for y in x])
+
+
+#### Plotting
+fig, axs = pplt.subplots(nrows=2, ncols=3, share=False)
+
+col_means = rotated_bin_count.loc[:, 'L_mean'].round(2)
+col_counts = rotated_bin_count.loc[:, 'L_count']
+xlims = (0.5, 50)
+###### Rotation ########
+# 1. ADRs
 ax = axs[0, 0]
 h = []
-for var, color, offset in zip(['max_adr_area', 'max_adr_convex_area',
-                       'max_adr_major_axis_length', 'max_adr_minor_axis_length'],
-                      ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
-                             np.linspace(-0.3, 0.3, 4)):
-    plot_data = df_rot.pivot_table(columns='area_bin', values=var, index=df_rot.index)
-    plot_data = plot_data.loc[:, rotated_bin_count['area_count'] > 10]
-    x = plot_data.columns.astype(int)
-    plot_data.columns = plot_data.columns + offset
-    ax.box(plot_data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=0.2)
+for var, color, offset in zip(
+    ['max_adr_area', 'max_adr_convex_area', 'max_adr_major_axis_length', 'max_adr_minor_axis_length'],
+    ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
+    np.linspace(-2.75, 2.75, 4)):
+    
+    data = df_rot.pivot_table(columns='length_bin', values=var, index=df_rot.index)
+    data = data.loc[:, col_counts.values > n_min]
+    data.columns = bin_centers[col_counts[col_counts >= n_min].index - 1] + offset
+    ax.box(data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=2)
     h.append(ax.plot([],[], m='s', c=color, lw=0, ec='k'))
 
-    # Draw grid lines
-    for xc in x[:-1]:
-        ax.axvline(xc + 0.5, lw=1, color='gray')
-        
-ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
-          xlocator=x, xlim=plot_range, ylim=(0, 0.3),
-          xformatter=[str(int(x)) for x in rotated_bin_count.area_mean.round().values.squeeze()], xrotation=0,
-         title='Max.-Min. Abs. Diff. Ratio', xlabel='Bin-average floe area (pixels)', ylabel='Absolute Difference Ratio',
-         xgrid=False)
 
+ax.plot(x, adr_area_threshold(x), color='tab:blue', lw=1, marker='')
+ax.plot(x, adr_major_axis_threshold(x), color='tab:orange', lw=1, marker='')
+
+for xc in bins:
+    ax.axvline(xc + 0.5, lw=1, color='gray')
+
+ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
+          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.3),
+          xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
+         title='Max. ADR Under Rotation', xlabel='Floe length scale (km)', ylabel='Absolute Difference Ratio',
+         xgrid=True)
 ax.legend(h, ['Area', 'Convex Area', 'Major Axis Length', 'Minor Axis Length'], ncols=1)
 
+# 2. Normalized Shape Difference
+ax = axs[0,1]
+var =  'max_normalized_shape_difference'
+color = 'tab:pink'
+data = df_rot.pivot_table(columns='length_bin', values=var, index=df_rot.index)
+data = data.loc[:, col_counts.values >= n_min]
+data.columns = bin_centers[col_counts[col_counts >= n_min].index - 1]
+ax.box(data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=2)
+ax.plot(x, scaled_shape_difference_threshold(x), color=color, lw=1, marker='')
+
+
+for xc in bins:
+    ax.axvline(xc + 0.5, lw=1, color='gray')
+
+ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
+          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.6),
+          xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
+         title='Max.-Min. SD/A Under Rotation', xlabel='Floe length scale (km)', ylabel='Scaled Shape Difference',
+         xgrid=True)
+
+# 3. Psi-s Correlation
+ax = axs[0, 2]
+var = 'min_psi_s_correlation'
+color = 'tab:purple'
+data = df_rot.pivot_table(columns='length_bin', values=var, index=df_rot.index)
+data = data.loc[:, col_counts.values >= n_min]
+data.columns = bin_centers[col_counts[col_counts >= n_min].index - 1]
+ax.box(data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=2)
+ax.plot(x, psi_s_corr_threshold(x), color=color, lw=1, marker='')
+
+
+for xc in bins:
+    ax.axvline(xc + 0.5, lw=1, color='gray')
+
+ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
+          xlocator=bin_centers, xlim=xlims, ylim=(0.7, 1.01),
+          xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
+         title='Min. $\\psi$-s Correlation Under Rotation', xlabel='Floe length scale (km)', ylabel='$\\psi$-s Correlation',
+         xgrid=True)
+
+##### Matched Pairs ######
+col_means = matched_bin_count.loc[:, 'L_mean'].round(2)
+col_counts = matched_bin_count.loc[:, 'L_count']
+xlims = (0.5, 50)
+
+# 1. ADRs
 ax = axs[1, 0]
 h = []
-for var, color, offset in zip(['adr_area', 'adr_convex_area', 'adr_major_axis_length', 'adr_minor_axis_length'],
-                      ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
-                             np.linspace(-0.3, 0.3, 4)):
+for var, color, offset in zip(
+    ['adr_area', 'adr_convex_area', 'adr_major_axis_length', 'adr_minor_axis_length'],
+    ['tab:blue', 'tab:green', 'tab:orange', 'tab:gray'],
+    np.linspace(-2.75, 2.75, 4)):
 
-    idx = df_mg[['terra_cloud_fraction', 'aqua_cloud_fraction']].max(axis=1) < 0.2
-    
-    plot_data = df_mg.loc[idx, :].pivot_table(columns='area_bin', values=var, index=df_mg.loc[idx, :].index)
-    plot_data = plot_data.loc[:, matched_bin_count['area_count'] > 10]
-    x = plot_data.columns.astype(int)
-    plot_data.columns = plot_data.columns + offset
-    ax.box(plot_data, fillcolor=color,  showfliers=True, marker='.', markersize=1,  widths=0.2)
+    data = df_mg.pivot_table(columns='length_bin', values=var, index=df_mg.index)
+    data = data.loc[:, [x for x in data.columns if col_counts[x] >= n_min]]
+    data.columns = bin_centers[col_counts[col_counts >= n_min].index - 1] + offset
+    ax.box(data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=2)
     h.append(ax.plot([],[], m='s', c=color, lw=0, ec='k'))
-    for xc in x[:-1]:
+    
+    for xc in bins:
         ax.axvline(xc + 0.5, lw=1, color='gray')
-        
+ax.plot(x, adr_area_threshold(x), color='tab:blue', lw=1, marker='')
+ax.plot(x, adr_major_axis_threshold(x), color='tab:orange', lw=1, marker='')
+
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
-          xlocator=x, xlim=plot_range, ylim=(0, 0.3),
-          xformatter=[str(int(x)) for x in matched_bin_count.area_mean.round(1).values.squeeze()], xrotation=0,
-         title='Matched Pair Abs. Diff. Ratio', xlabel='Bin-average floe area (pixels)', ylabel='Absolute Difference Ratio',
-         xgrid=False)
+          xlocator=bin_centers, xlim=xlims, ylim=(-0.01, 0.3),
+          xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
+          title='Matched Pair ADR', xlabel='Floe length scale (km)', ylabel='Absolute Difference Ratio',
+          xgrid=False)
 
 ax.legend(h, ['Area', 'Convex Area', 'Major Axis Length', 'Minor Axis Length'], ncols=1)
 
+# 2. Normalized Shape Difference
+ax = axs[1,1]
+var =  'normalized_shape_difference'
+color = 'tab:pink'
+data = df_mg.pivot_table(columns='length_bin', values=var, index=df_mg.index)
+data = data.loc[:, [x for x in data.columns if col_counts[x] >= n_min]]
+data.columns = bin_centers[col_counts[col_counts >= n_min].index - 1]
+ax.box(data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=2)
+ax.plot(x, scaled_shape_difference_threshold(x), color=color, lw=1, marker='')
+for xc in bins:
+    ax.axvline(xc + 0.5, lw=1, color='gray')
 
-for ax, var, color, dataframe, bin_counts in zip(
-        [axs[0,1], axs[0,2], axs[1,1], axs[1,2]],
-        ['min_psi_s_correlation', 'max_normalized_shape_difference', 'psi_s_correlation', 'normalized_shape_difference'],
-        ['light gray', 'light gray', 'light gray', 'light gray'],
-        [df_rotation.loc[df_rotation.training, :], df_rotation.loc[df_rotation.training, :],
-         df_matched.loc[df_matched.training, :], df_matched.loc[df_matched.training, :]],
-        [rotated_bin_count, rotated_bin_count, matched_bin_count, matched_bin_count]):
+ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
+          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.6),
+          xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
+         title='Matched Pair SD/A', xlabel='Floe length scale (km)', ylabel='Scaled Shape Difference',
+         xgrid=True)
 
-    plot_data = dataframe.pivot_table(columns='area_bin', values=var, index=dataframe.index)
-    plot_data = plot_data.loc[:, bin_counts['area_count'] > 10]
-    x = plot_data.columns.astype(int)
-    ax.box(plot_data, fillcolor=color, showfliers=True, marker='.', markersize=1, widths=0.2)
-    h.append(ax.plot([],[], m='s', c=color, lw=0, ec='k'))
 
-    # Draw grid lines
-    for xc in x[:-1]:
-        ax.axvline(xc + 0.5, lw=1, color='gray')
-        
-    ax.format(xtickminor=False, 
-              xlocator=x, xlim=plot_range,
-              xformatter=[str(int(x)) for x in bin_counts.area_mean.round().values.squeeze()], xrotation=0,
-              xlabel='Bin-average floe area (pixels)',
-              xgrid=False, abc=True)
-axs[0,1].format(ylabel=r'$\psi-s$ Correlation', title='Max.-Min. Correlation', ylim=(0.69, 1.01))
-axs[1,1].format(ylabel=r'$\psi-s$ Correlation', title='Matched Pair Correlation', ylim=(0.69, 1.01))
-axs[0,2].format(ylabel='Normalized Shape Difference', title='Max.-Min. Shape Difference', ylim=(-0.02, 0.52))
-axs[1,2].format(ylabel='Normalized Shape Difference', title='Matched Pair Shape Difference', ylim=(-0.02, 0.52))
+# 2. Psi-S Correlation
+ax = axs[1,2]
+var =  'psi_s_correlation'
+color = 'tab:purple'
+data = df_mg.pivot_table(columns='length_bin', values=var, index=df_mg.index)
+data = data.loc[:, [x for x in data.columns if col_counts[x] >= n_min]]
+data.columns = bin_centers[col_counts[col_counts >= n_min].index - 1]
+ax.box(data, fillcolor=color,  showfliers=True, marker='.', markersize=1, widths=2)
+ax.plot(x, psi_s_corr_threshold(x), color=color, lw=1, marker='')
+for xc in bins:
+    ax.axvline(xc + 0.5, lw=1, color='gray')
 
-fig.format(abc=True)
+ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
+          xlocator=bin_centers, xlim=xlims, ylim=(0.7, 1.01),
+          xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
+         title='Matched Pair $\\psi$-s Correlation', xlabel='Floe length scale (km)', ylabel='$\\psi$-s Correlation',
+         xgrid=True)
+
+# TBD: Determine where the small / large cutoffs should be
 fig.save('../figures/fig_XX_ADR_psi-s_normSD.png', dpi=300)
