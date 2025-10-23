@@ -2,8 +2,9 @@
 
 using Pkg;
 Pkg.activate("cal-val")
+Pkg.add(; name="IceFloeTracker", rev="main")
+
 Pkg.add(["IJulia",
-        "IceFloeTracker",
         "DataFrames",
         "CairoMakie",
         "CSV",
@@ -12,6 +13,8 @@ Pkg.add(["IJulia",
         "Images",
         "ImageSegmentation",
         "FileIO"])
+using IceFloeTracker
+
 Pkg.build()
 Pkg.resolve()
 Pkg.instantiate()
