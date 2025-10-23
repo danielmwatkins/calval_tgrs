@@ -1,46 +1,40 @@
-"""Rotation experiment for calibration paper. All floes rotated by set amounts, then the differences are calculated. For the absdiffratio, note that to match the new paper, you need to multiply by 0.5"""
+"""Rotation experiment for calibration paper. All floes rotated by set amounts, then the differences are calculated. For the absdiffratio, note that to match the new paper, you need to multiply by 0.5 to convert from |x - y|/|mean(x, y)| into |x - y| / |x + y|."""
 
-using Pkg;
+using Pkg
 Pkg.activate("cal-val")
-
 using IceFloeTracker
-using IceFloeTracker: load, regionprops_table, label_components, imshow, absdiffmeanratio, mismatch, addfloemasks!
-using DataFrames, CSV, Interpolations, Images
+using IceFloeTracker: Watkins2025GitHub
+using IceFloeTracker.Tracking: absdiffmeanratio, buildψs, corr, mismatch
+using DataFrames
+using Interpolations
+using CSVFiles
 
-test_images_loc = "/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/data/validation_dataset/binary_floes/"
+# The "ref" parameter points to the newest version of the dataset.
+# If any scripts have been run with this already, it will be faster due to the data already being downloaded.
+data_loader = Watkins2025GitHub(; ref="1d36f82a5cb337839ab039bffca8961a97241c22")
+data_set = data_loader(c -> c.visible_floes == "yes")
 
-# convenience functions
-greaterthan0(x) = x .> 0 # convert labeled image to boolean
-greaterthan05(x) = x .> 0.5 # used for the image resize step
-imrotate_bin(x, r) = greaterthan05(collect(imrotate(x, deg2rad(r), method=BSpline(Constant()))))
+# simple utility function to turn array to bitmap
+greaterthan05(x) = x .> 0.5
 
-# expose the non-normalized mismatch from the IFT
-function mismatch_temp(fixed::AbstractArray, moving::AbstractArray, test_angles::AbstractArray)
-    shape_differences = IceFloeTracker.shape_difference_rotation(
-        fixed, moving, test_angles; imrotate_function=IceFloeTracker.imrotate_bin_clockwise_degrees
-    )
-    best_match = argmin((x) -> x.shape_difference, shape_differences)
-    rotation_degrees = best_match.angle
-    normalized_area = (sum(fixed) + sum(moving)) / 2
-    normalized_mismatch = best_match.shape_difference / normalized_area
-    return (mm=normalized_mismatch, rot=rotation_degrees, sd=best_match.shape_difference)
-end
+# and to rotate an image while preventing cropping
+imrotate_bin_nocrop(x, r) = greaterthan05(collect(imrotate(x, r; method=BSpline(Constant()))))
 
-files = readdir(test_images_loc)
-files = [f for f in files if occursin("aqua", f)]
+for (case, metadata) in zip(data_set.data, eachrow(data_set.metadata))
+    print("Running case ", metadata.case_number, " ", metadata.satellite, "\n")
 
-# build psi fails for: 111, 130.
-# files_subset = [f for f in files if parse(Int64, f[1:3]) != 130 && parse(Int64, f[1:3]) != 111]
-for fname in files
-    image = load(joinpath(test_images_loc, fname))
-        
-    # Add labels and get region properties
-    labeled_image = label_components(image);
-    # properties=["area", "convex_area", "perimeter", "major_axis_length", "minor_axis_length"]
-    props = regionprops_table(labeled_image);
+    labeled_image = case.validated_labeled_floes
+
+    props = regionprops_table(labeled_image.image_indexmap)
     
-    addfloemasks!(props, greaterthan0.(labeled_image));
+    # bug in addfloemasks requires that the dataframe not have extra rows
+    addfloemasks!(props, greaterthan05.(labeled_image.image_indexmap))
     
+    # hence we have to add them in after
+    props_labeled = regionprops_table(labeled_image.image_indexmap; properties=["label"])
+    props[:, :label] = props_labeled[:, :label]
+
+    # initialize the dataframe
     df = DataFrame(
                    floe_id=Int16[],
                    rotation=Float64[],
@@ -54,36 +48,30 @@ for fname in files
                    adr_major_axis_length=Float64[],
                    adr_minor_axis_length=Float64[],
                    rotation_estimated=Float64[],
-                   minimum_shape_difference=Float64[],
+                   normalized_shape_difference=Float64[],
                    psi_s_correlation=Float64[],
                    )
-    floe_id = 1
+    
     for floe_data in eachrow(props)
         if floe_data["area"] >= 50 && floe_data["area"] <= 350^2 # had some errors where the background was treated as a floe
-            im_init = copy(floe_data["mask"])
             
-            # pad the floe to avoid changing floe area relative to image size
-            n = Int64(round(maximum(size(im_init))))
-            im_padded = collect(padarray(im_init, Fill(0, (n, n), (n, n))))
-            
-            # recalculate properties -- should be same as init except centroid/bbox
-            init_props = regionprops_table(label_components(im_padded))
             for rotation in range(-45, 45, 31)
-                im_rotated = imrotate_bin(im_padded, rotation)
+                im_rotated = imrotate_bin_nocrop(floe_data[:mask], deg2rad(rotation))
                 rotated_props = regionprops_table(label_components(im_rotated))
+                # Search the 90-degree window surrounding the true rotation. 
+                test_angles = range(; start=rotation - 45, stop=rotation + 45, step=1)
+                normalized_shape_difference, rotation_estimated = mismatch(floe_data[:mask], im_rotated, test_angles)
     
-                normalized_mismatch, rotation_degrees, shape_difference = mismatch_temp(
-                    im_init, im_rotated, -90:1:90)
                 try
-                    _psi = IceFloeTracker.buildψs.([im_init, im_rotated])
-                    global r = round(IceFloeTracker.corr(_psi...), digits=3)
+                    _psi = buildψs.([floe_data[:mask], im_rotated])
+                    global r = round(corr(_psi...), digits=3)
                 
                 catch e
                     @warn "Build Psi-S failed: $e"
                     global r = NaN
                 end
                 
-                push!(df, (floe_id,
+                push!(df, (floe_data[:label],
                            rotation,
                            rotated_props[1,:area],
                            rotated_props[1,:convex_area],
@@ -94,16 +82,15 @@ for fname in files
                            0.5*absdiffmeanratio(floe_data["convex_area"], rotated_props[1,:convex_area]),
                            0.5*absdiffmeanratio(floe_data["major_axis_length"], rotated_props[1,:major_axis_length]),
                            0.5*absdiffmeanratio(floe_data["minor_axis_length"], rotated_props[1,:minor_axis_length]),
-                           rotation_degrees,
-                           shape_difference,
+                           rotation_estimated,
+                           normalized_shape_difference,
                            r
                            )) 
             end
         end
-        floe_id += 1
-    end
-    
+    end    
     
     print("Writing to file\n")
-    CSV.write("../data/rotation_test/"*fname[1:3]*"-shape-rotation.csv", df);
+    
+    df |> save("../data/rotation_test/"*case.name*"-shape-rotation.csv")
 end

@@ -38,19 +38,21 @@ df_testtrain['case_number'] = [str(x).zfill(3) for x in df_testtrain['case_numbe
 
 #### Load the rotation data ######
 # First need to run the julia script rotation_test_floe_shapes_ADR.jl
+# So we don't oversample the same shapes, select just the Aqua images
 data = []
 for fname in os.listdir('../data/rotation_test/'):
     if '.csv' in fname:
-        df = pd.read_csv('../data/rotation_test/' + fname)
-        df['case'] = fname.split('-')[0].replace('.csv', '')
-        if len(df) > 0:
-            data.append(df)
+        if 'aqua' in fname:
+            df = pd.read_csv('../data/rotation_test/' + fname)
+            df['case'] = fname.split('-')[0].replace('.csv', '')
+            if len(df) > 0:
+                data.append(df)
 df_all = pd.concat(data).reset_index(drop=True)
 df_all['floe_id'] = [cn + '_' + str(f).zfill(4) for cn, f in zip(
                                 df_all['case'], df_all['floe_id'])]
 df_all = df_all.loc[df_all.area > 50]
 df_all["L"] = np.sqrt(df_all.area)
-df_all['normalized_shape_difference'] = df_all['minimum_shape_difference'] / df_all['area']
+# df_all['normalized_shape_difference'] = df_all['minimum_shape_difference'] / df_all['area']
 comp_columns = ['area', 'convex_area', 'major_axis_length', 'minor_axis_length',
                 'adr_area', 'adr_convex_area', 'adr_major_axis_length',
                 'adr_minor_axis_length', 'normalized_shape_difference']
