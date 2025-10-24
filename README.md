@@ -14,8 +14,11 @@ The IFT is calibrated using the (Ice Floe Validation Dataset)[https://github.com
 Notebook: `cloudmask_callibration.ipynb`  
 Walks through the algorithm options, methodology, and provides example images and comparisons beyond what is used in the paper.
 
+Script: `create_cloudmask_images.jl`
+Generates the original and cleaned cloudmasks for validation.
+
 Script: `calibrate_cloudmask_plot_histograms.py`.  
-Reads in the image data, computes and plots the cloudmask algorithms. Cloudmask settings are copied from the notebook.
+Reads in the image data, computes and plots the cloudmask algorithms. Cloudmask settings are copied from the notebook. Generates Figure 5. Prints the estimated optimal parameters and the tests against the held-out data.
 
 ## preprocessing and tiling
 * TBD: Clean up the tiling algorithm to use cloud fraction and image contrast (or entropy?) to determine whether to equalize the histogram. Still need to determine whether any settings of the morphological operations need to be changed.
@@ -34,6 +37,15 @@ Segmentation of the image includes a few steps that are considered individually.
 
 
 # Calibrating the tracking module
+1. Identification of thresholds for geometric similarity measures. The script `rotation_test_floe_shapes.jl` computes the shape measures and the similarity measures for floes rotated by -45 to 45 degrees. CSV files for the rotations are saved in the `data/rotation_test` folder. 
+
+
+
+
+
+
+
+
 The calibration and initial validation of the tracking module is carried out using the floes in the validation dataset. We need to understand how the tracking performance is affected by uncertainty in the floe boundary.  For this reason we need to take the set of tracked floes, and select floes based on the confidence in the boundary. 
 - Fully clear sky floes: Floe and its boundary (dilation by 2 pixels) contains no (or less than x%) pixels flagged as cloudy by the IFT cloud mask
 - Partially obscured floes: Floe and its boundary have cloud fraction between (min, max).
