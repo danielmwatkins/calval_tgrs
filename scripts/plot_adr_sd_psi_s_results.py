@@ -117,7 +117,7 @@ matched_bin_count.columns = ['_'.join(col).strip() for col in matched_bin_count.
 #### Settings #####
 n_min = 20
 length_min = 10
-length_max = 30
+length_max = 40
 xlims = (0.5, 50)
 x = np.linspace(xlims[0], xlims[1], 50)
 
@@ -131,13 +131,18 @@ def piecewise_threshold(x, x0, x1, y0, y1):
         return (y1 - y0)/(x1 - x0)*(x - x1) + y1
         
 # Update values below based on the calibration results (99th percentile for above / below value)
-adr_area_threshold = lambda x: np.array([piecewise_threshold(y, x0=length_min, x1=length_max, y0=0.27, y1=0.13) for y in x])
-adr_convex_area_threshold = lambda x: np.array([piecewise_threshold(y, length_min, length_max, 0.27, 0.13) for y in x])
-adr_major_axis_threshold = lambda x: np.array([piecewise_threshold(y, length_min, length_max, 0.16, 0.07) for y in x])
-adr_minor_axis_threshold = lambda x: np.array([piecewise_threshold(y,  length_min, length_max, 0.17, 0.11) for y in x])
-scaled_shape_difference_threshold = lambda x: np.array([piecewise_threshold(y, length_min,  length_max, 0.53, 0.30) for y in x])
-psi_s_corr_threshold = lambda x: np.array([piecewise_threshold(y, length_min,  length_max, 0.84, 0.93) for y in x])
-
+adr_area_threshold = lambda x: np.array([piecewise_threshold(y,
+                        length_min, length_max,  0.26,  0.06) for y in x])
+adr_convex_area_threshold = lambda x: np.array([piecewise_threshold(y,
+                        length_min, length_max, 0.25, 0.11) for y in x])
+adr_major_axis_threshold = lambda x: np.array([piecewise_threshold(y,
+                        length_min, length_max, 0.15, 0.06) for y in x])
+adr_minor_axis_threshold = lambda x: np.array([piecewise_threshold(y,
+                        length_min, length_max, 0.16, 0.04) for y in x])
+scaled_shape_difference_threshold = lambda x: np.array([piecewise_threshold(y,
+                        length_min,  length_max, 0.51, 0.24) for y in x])
+psi_s_corr_threshold = lambda x: np.array([piecewise_threshold(y,
+                        length_min,  length_max, 0.84, 0.97) for y in x])
 
 #### Plotting
 fig, axs = pplt.subplots(nrows=2, ncols=3, share=False)
@@ -163,6 +168,9 @@ for var, color, offset in zip(
 
 ax.plot(x, adr_area_threshold(x), color='tab:blue', lw=1, marker='')
 ax.plot(x, adr_major_axis_threshold(x), color='tab:orange', lw=1, marker='')
+ax.plot(x, adr_convex_area_threshold(x), color='tab:green', lw=1, marker='')
+ax.plot(x, adr_minor_axis_threshold(x), color='tab:gray', lw=1, marker='')
+
 
 for xc in bins:
     ax.axvline(xc + 0.5, lw=1, color='gray')
@@ -235,8 +243,11 @@ for var, color, offset in zip(
     
     for xc in bins:
         ax.axvline(xc + 0.5, lw=1, color='gray')
+
 ax.plot(x, adr_area_threshold(x), color='tab:blue', lw=1, marker='')
 ax.plot(x, adr_major_axis_threshold(x), color='tab:orange', lw=1, marker='')
+ax.plot(x, adr_convex_area_threshold(x), color='tab:green', lw=1, marker='')
+ax.plot(x, adr_minor_axis_threshold(x), color='tab:gray', lw=1, marker='')
 
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
           xlocator=bin_centers, xlim=xlims, ylim=(-0.01, 0.3),
@@ -282,6 +293,6 @@ ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
           xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
          title='Matched Pair $\\psi$-s Correlation', xlabel='Floe length scale (km)', ylabel='$\\psi$-s Correlation',
          xgrid=True)
-
+fig.format(abc=True)
 # TBD: Determine where the small / large cutoffs should be
 fig.save('../figures/fig_XX_ADR_psi-s_normSD.png', dpi=300)

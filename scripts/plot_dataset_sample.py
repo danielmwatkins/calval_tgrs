@@ -123,7 +123,7 @@ for i, case in enumerate(['011', '022', '108', '128']):
         ax[2,i].imshow(np.ma.masked_array(manual_landfast, mask=manual_landfast == 0), c='yellow4')
 
 
-    c = ax[3,i].pcolormesh(cf_images[case_number].values, vmin=0, vmax=100, N=17, cmap='Blues')
+    c = ax[3,i].pcolormesh(cf_images[case_number].values, vmin=0, vmax=100, N=17, cmap='Blues_r')
     
     ax[3,i].format(yreverse=True)
 

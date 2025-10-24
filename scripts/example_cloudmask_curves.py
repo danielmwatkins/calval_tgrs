@@ -1,4 +1,4 @@
-import proplot as pplt
+import ultraplot as pplt
 import numpy as np
 import pandas as pd
 

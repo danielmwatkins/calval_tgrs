@@ -1,3 +1,7 @@
+# Calibrate the parameters for the cloud mask algorithm.
+# Requires the repo for the validation dataset to be cloned from github, specify the location of the dataset with the 'dataloc' parameter.
+# Divides images into test/train data.
+
 import os
 import pandas as pd
 import numpy as np
@@ -34,8 +38,9 @@ df['start_date'] = pd.to_datetime(df['start_date'].values)
 df.index = [cn + '_' + sat for cn, sat in zip(df.case_number, df.satellite)]
 
 # Divide into testing and training datasets based on case number
-training_cases = df.loc[df.satellite == 'aqua'].sample(frac=2/3, random_state=97234)['case_number'].values
-training_idx = [x for x in df.index if df.loc[x, 'case_number'] in training_cases]
+# training_cases = df.loc[df.satellite == 'aqua'].sample(frac=2/3, random_state=97234)['case_number'].values
+# training_idx = [x for x in df.index if df.loc[x, 'case_number'] in training_cases]
+training_idx = df.sample(frac=2/3, random_state=97234).index
 df['training'] = False
 df.loc[training_idx, 'training'] = True
 
@@ -56,12 +61,10 @@ params = {'Original': {'tau_0': 110,
                        'ls': '-'},
           'Hybrid': {'tau_0': 53,
                        'tau_7': 130,
-                       'tau_2': 169,
-                       'tau_r': 0.53,
+                       'tau_2': 170,
+                       'tau_r': 0.52,
                         'c': 'k',
                         'ls': '--'}}
-
-bands = ['b1', 'b2', 'b3', 'b4', 'b7']
 
 
 def cloud_mask(b2, b7, t0=110, t_b7=200, t_b2=190, t_b7b2=0.75):
@@ -234,8 +237,6 @@ for row, data in df.iterrows():
                 missing.append(fname(df.loc[row,:], imtype))
 
 
-
-
 # Load the numeric cloud fraction data
 cf_images = {}
 cases = [c for c in cl_images]
@@ -259,7 +260,26 @@ df['cloud_fraction_modis'] = np.nan
 for case in cf_images:
     df.loc[case, 'cloud_fraction_modis'] = np.mean(cf_images[case]/100)
 
+#### Load the 2019 and the updated and cleaned cloud mask
+cloud_mask_original = {}
+cloud_mask_new_cleaned = {}
 
+for case in df.index:
+    orig_dataloc = '../data/ift_cloud_mask/lopez_acosta/'
+    update_dataloc = '../data/ift_cloud_mask/cleaned/'
+
+    template = fname(df.loc[case])
+    if 'aqua' in template:
+        filename = template.replace('.aqua.labeled_floes.250m.tiff',
+                                               '-aqua-250m-cloudmask.png')
+    else:
+        filename = template.replace('.terra.labeled_floes.250m.tiff',
+                                               '-terra-250m-cloudmask.png')
+        
+    with rio.open(orig_dataloc + filename) as im:
+        cloud_mask_original[case] = im.read()
+    with rio.open(update_dataloc + filename) as im:
+        cloud_mask_new_cleaned[case] = im.read()
 
 pixel_data = {'cloudy': {},
               'clearsky_ice': {},
@@ -268,6 +288,8 @@ pixel_data = {'cloudy': {},
              }
 
 # initialize
+bands = ['b1', 'b2', 'b3', 'b4', 'b7', 'la2019_mask', 'dmw2025_mask']
+
 for s in pixel_data:
     for b in bands:
         pixel_data[s][b] = []
@@ -282,7 +304,9 @@ for row, rowdata in df.iterrows():
             'b3': tc_images[case][2,:,:],
             'b2': fc_images[case][1,:,:],
             'b4': tc_images[case][1,:,:],
-            'b7': fc_images[case][0,:,:]
+            'b7': fc_images[case][0,:,:],
+            'la2019_mask': cloud_mask_original[case][0,:,:],
+            'dmw2025_mask': cloud_mask_new_cleaned[case][0,:,:]
            }
     
     # get boolean masks for cloud and land
@@ -329,6 +353,24 @@ for s in pixel_data:
     pixel_data[s]['case'] = np.hstack(pixel_data[s]['case'])
     pixel_data[s] = pd.DataFrame(pixel_data[s])
     pixel_data[s]['training'] = df.loc[pixel_data[s]['case'], 'training'].values
+
+
+# Calibration results (source of numbers for "hybrid" method above)
+category = 'cloudy'
+idx = pixel_data[category].training
+tau_init = pixel_data[category].loc[idx, 'b7'].quantile(0.05)
+
+category = 'cloudy_ice'
+idx = pixel_data[category].training
+idx_b2 = idx & (pixel_data[category]['b7'] > tau_init)
+x = pixel_data[category].loc[idx_b2, 'b2']
+y = pixel_data[category].loc[idx, 'b7']
+tau_b2 = x.quantile(0.05)
+tau_b7 = y.quantile(0.95)
+idx_r = idx & (pixel_data[category]['b2'] > tau_b2) & (pixel_data[category]['b7'] < tau_b7)
+r = pixel_data[category].loc[idx_r, 'b7b2']
+r = r.quantile(0.95)
+print("tau0={t0}, tau7={t7}, tau2={t2}, tau_r={r}".format(t0=tau_init, t7=tau_b7, t2=tau_b2, r=np.round(r, 2)))
 
 
 fig, axs = pplt.subplots(ncols=3, refwidth=2.3, share=False)
@@ -397,3 +439,22 @@ for ax in axs:
 ax.legend(ncols=1)
 fig.format(abc=True)
 fig.save('../figures/fig_05_cloud_mask_histograms.png', dpi=300)
+
+#### Validation against held-out data ####
+print("True positive rate")
+print(
+    (pixel_data['cloudy'].loc[~pixel_data['cloudy'].training,
+        ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+
+print("False positive rate: cloudy ice")
+print(
+    (pixel_data['cloudy_ice'].loc[~pixel_data['cloudy_ice'].training,
+        ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+
+print("False positive rate: clear-sky ice")
+print((pixel_data['clearsky_ice'].loc[~pixel_data['clearsky_ice'].training,
+    ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+
+print("False positive rate: clear and cloudy ice")
+temp_df = pd.concat([pixel_data['clearsky_ice'], pixel_data['cloudy_ice']])
+print((temp_df.loc[~temp_df.training, ['la2019_mask', 'dmw2025_mask']] > 0).mean())
