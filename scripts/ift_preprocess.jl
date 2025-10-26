@@ -56,8 +56,6 @@ for row in eachrow(df)
     cm_savename = join([case_number, region, "100km", date], "-")*"."*join([row[:satellite], "cloudmask", "250m", "tiff"], ".")
     mr_savename = join([case_number, region, "100km", date], "-")*"."*join([row[:satellite], "morphed_residue", "250m", "tiff"], ".")
     
-    
-    
     lm_image = float64.(RGB.(load(joinpath(data_dir, "modis", "landmask", lm_filename))))
     fc_image = float64.(RGB.(load(joinpath(data_dir, "modis", "falsecolor", fc_filename))))
     tc_image = float64.(RGB.(load(joinpath(data_dir, "modis", "truecolor", tc_filename))))
