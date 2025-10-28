@@ -5,8 +5,7 @@ the right-hand label is assigned as a candidate pair to the left-hand label. If 
 intensity is less than 0.1, the objects are merged. The function returns an image index map.
 """
 
-function stitch_clusters(tiles, segmented_image, minimum_overlap=4, grayscale_threshold=0.1)
-    
+function stitch_clusters(tiles, segmented_image, minimum_overlap=4, grayscale_threshold=0.1) 
     grayscale_magnitude(c) = Float64(Gray(c))
     
     idxmap = deepcopy(segmented_image.image_indexmap)
