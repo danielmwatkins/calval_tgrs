@@ -120,15 +120,15 @@ end
 p = LopezAcosta2019.Segment(landmask_structuring_element=strel_box((11,11)));
 
 # Large images
-dataloc = "../data/MODIS_JOG_example_case/"
+dataloc = "../../data/modis_data/fram_strait_2014/"
+lm_img = float64.(RGB.(load(dataloc*"/landmask.tiff")))
 
-for date in ["20140429", "20140430"]
+for date in ["20140426", "20140427", "20140428", "20140429", "20140430", "20140501", "20140502", "20140503"]
     for satellite in ["aqua", "terra"]
         @info "Beginning "*date*" "*satellite
         
         tc_img = float64.(RGB.(load(dataloc*"truecolor/"*date*"."*satellite*".truecolor.250m.tiff")))
         fc_img = float64.(RGB.(load(dataloc*"falsecolor/"*date*"."*satellite*".falsecolor.250m.tiff")))
-        lm_img = float64.(RGB.(load(dataloc*"/landmask.tiff")));
         
         @time begin
             init_segmented = p(tc_img, fc_img, lm_img)
@@ -138,7 +138,7 @@ for date in ["20140429", "20140430"]
             postprocess_segmented = postprocess_floes(init_segmented, fc_img, lm_img)
         end
         
-        save(dataloc*"labeled_init/"*date*"."*satellite*".init_colorized_image.tiff", view_seg_random(init_segmented) .* (init_segmented.image_indexmap .> 0))
-        save(dataloc*"labeled_proc/"*date*"."*satellite*".post_colorized_image.tiff", view_seg_random(postprocess_segmented) .* (postprocess_segmented.image_indexmap .> 0))
+        save(dataloc*"labeled_init/"*date*"."*satellite*".colorized_init.tiff", view_seg_random(init_segmented) .* (init_segmented.image_indexmap .> 0))
+        save(dataloc*"labeled_proc/"*date*"."*satellite*".colorized_proc.tiff", view_seg_random(postprocess_segmented) .* (postprocess_segmented.image_indexmap .> 0))
     end
 end
