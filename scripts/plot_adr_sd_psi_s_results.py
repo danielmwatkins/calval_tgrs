@@ -176,7 +176,7 @@ for xc in bins:
     ax.axvline(xc + 0.5, lw=1, color='gray')
 
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
-          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.3),
+          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.5),
           xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
          title='Max. ADR Under Rotation', xlabel='Floe length scale (km)', ylabel='Absolute Difference Ratio',
          xgrid=True)
@@ -250,7 +250,7 @@ ax.plot(x, adr_convex_area_threshold(x), color='tab:green', lw=1, marker='')
 ax.plot(x, adr_minor_axis_threshold(x), color='tab:gray', lw=1, marker='')
 
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
-          xlocator=bin_centers, xlim=xlims, ylim=(-0.01, 0.3),
+          xlocator=bin_centers, xlim=xlims, ylim=(-0.01, 0.5),
           xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
           title='Matched Pair ADR', xlabel='Floe length scale (km)', ylabel='Absolute Difference Ratio',
           xgrid=False)

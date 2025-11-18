@@ -1,4 +1,4 @@
-"""Rotation experiment for calibration paper. All floes rotated by set amounts, then the differences are calculated. For the absdiffratio, note that to match the new paper, you need to multiply by 0.5 to convert from |x - y|/|mean(x, y)| into |x - y| / |x + y|."""
+"""Rotation experiment for calibration paper. All floes rotated by set amounts, then the differences are calculated."""
 
 using Pkg
 Pkg.activate("cal-val")
@@ -7,6 +7,7 @@ using IceFloeTracker: Watkins2025GitHub
 using IceFloeTracker.Tracking: absdiffmeanratio, buildψs, corr, mismatch
 using DataFrames
 using Interpolations
+using Images
 using CSVFiles
 
 # The "ref" parameter points to the newest version of the dataset.
@@ -61,7 +62,9 @@ for (case, metadata) in zip(data_set.data, eachrow(data_set.metadata))
                 # Search the 90-degree window surrounding the true rotation. 
                 test_angles = range(; start=rotation - 45, stop=rotation + 45, step=1)
                 normalized_shape_difference, rotation_estimated = mismatch(floe_data[:mask], im_rotated, test_angles)
-    
+
+                # tbd: add new shape difference estimate, the faster one
+                
                 try
                     _psi = buildψs.([floe_data[:mask], im_rotated])
                     global r = round(corr(_psi...), digits=3)
@@ -78,10 +81,10 @@ for (case, metadata) in zip(data_set.data, eachrow(data_set.metadata))
                            rotated_props[1,:major_axis_length],
                            rotated_props[1,:minor_axis_length],
                            rotated_props[1,:perimeter],
-                           0.5*absdiffmeanratio(floe_data["area"], rotated_props[1,:area]),
-                           0.5*absdiffmeanratio(floe_data["convex_area"], rotated_props[1,:convex_area]),
-                           0.5*absdiffmeanratio(floe_data["major_axis_length"], rotated_props[1,:major_axis_length]),
-                           0.5*absdiffmeanratio(floe_data["minor_axis_length"], rotated_props[1,:minor_axis_length]),
+                           absdiffmeanratio(floe_data["area"], rotated_props[1,:area]),
+                           absdiffmeanratio(floe_data["convex_area"], rotated_props[1,:convex_area]),
+                           absdiffmeanratio(floe_data["major_axis_length"], rotated_props[1,:major_axis_length]),
+                           absdiffmeanratio(floe_data["minor_axis_length"], rotated_props[1,:minor_axis_length]),
                            rotation_estimated,
                            normalized_shape_difference,
                            r
