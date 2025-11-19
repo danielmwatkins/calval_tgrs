@@ -51,6 +51,8 @@ df_all = pd.concat(data).reset_index(drop=True)
 df_all['floe_id'] = [cn + '_' + str(f).zfill(4) for cn, f in zip(
                                 df_all['case'], df_all['floe_id'])]
 df_all = df_all.loc[df_all.area > 50]
+df_all = df_all.groupby('floe_id').filter(lambda x: len(x) > 10)
+
 df_all["L"] = np.sqrt(df_all.area)
 # df_all['normalized_shape_difference'] = df_all['minimum_shape_difference'] / df_all['area']
 comp_columns = ['area', 'convex_area', 'major_axis_length', 'minor_axis_length',
@@ -132,17 +134,17 @@ def piecewise_threshold(x, x0, x1, y0, y1):
         
 # Update values below based on the calibration results (99th percentile for above / below value)
 adr_area_threshold = lambda x: np.array([piecewise_threshold(y,
-                        length_min, length_max,  0.26,  0.06) for y in x])
+                        length_min, length_max,  0.43,  0.17) for y in x])
 adr_convex_area_threshold = lambda x: np.array([piecewise_threshold(y,
-                        length_min, length_max, 0.25, 0.11) for y in x])
+                        length_min, length_max, 0.44, 0.25) for y in x])
 adr_major_axis_threshold = lambda x: np.array([piecewise_threshold(y,
-                        length_min, length_max, 0.15, 0.06) for y in x])
+                        length_min, length_max, 0.27, 0.13) for y in x])
 adr_minor_axis_threshold = lambda x: np.array([piecewise_threshold(y,
-                        length_min, length_max, 0.16, 0.04) for y in x])
+                        length_min, length_max, 0.28, 0.10) for y in x])
 scaled_shape_difference_threshold = lambda x: np.array([piecewise_threshold(y,
-                        length_min,  length_max, 0.51, 0.24) for y in x])
+                        length_min,  length_max, 0.47, 0.31) for y in x])
 psi_s_corr_threshold = lambda x: np.array([piecewise_threshold(y,
-                        length_min,  length_max, 0.84, 0.97) for y in x])
+                        length_min,  length_max, 0.86, 0.96) for y in x])
 
 #### Plotting
 fig, axs = pplt.subplots(nrows=2, ncols=3, share=False)
@@ -176,7 +178,7 @@ for xc in bins:
     ax.axvline(xc + 0.5, lw=1, color='gray')
 
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
-          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.5),
+          xlocator=bin_centers, xlim=xlims, ylim=(0, 0.6),
           xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
          title='Max. ADR Under Rotation', xlabel='Floe length scale (km)', ylabel='Absolute Difference Ratio',
          xgrid=True)
@@ -250,7 +252,7 @@ ax.plot(x, adr_convex_area_threshold(x), color='tab:green', lw=1, marker='')
 ax.plot(x, adr_minor_axis_threshold(x), color='tab:gray', lw=1, marker='')
 
 ax.format(xtickminor=False, #xlocator=bin_area_ave.round().values.squeeze(),
-          xlocator=bin_centers, xlim=xlims, ylim=(-0.01, 0.5),
+          xlocator=bin_centers, xlim=xlims, ylim=(-0.01, 0.6),
           xformatter=[str(int(x) * 0.25) for x in bin_centers], xrotation=0,
           title='Matched Pair ADR', xlabel='Floe length scale (km)', ylabel='Absolute Difference Ratio',
           xgrid=False)
