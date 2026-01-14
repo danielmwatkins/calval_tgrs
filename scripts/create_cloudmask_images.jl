@@ -1,11 +1,16 @@
+"""
+Loop through the validation dataset, creating a cloud mask for each case. Generates the original LA2019 mask, an LA2019 mask with updated parameters, and the new W25 mask with the morphological cleanup to remove speckle.
+"""
+
 using Pkg
 Pkg.activate("cal-val")
 using IceFloeTracker
 using IceFloeTracker: AbstractCloudMaskAlgorithm, fill_holes
 using Images
+using Dates
 
 save_loc = "../data/ift_cloud_mask/"
-data_loader = Watkins2025GitHub(; ref="25ba4d46814a5423b65ad675aaec05633d17a37e")
+dataset = Watkins2026Dataset()
 
 cloud_mask_settings = (
     prelim_threshold=53.0/255.,
@@ -16,41 +21,19 @@ cloud_mask_settings = (
     ratio_upper=0.52
 )
 
-@kwdef struct Watkins2025CloudMask <: AbstractCloudMaskAlgorithm
-    prelim_threshold::Float64 = 0.21
-    band_7_threshold::Float64 = 0.51
-    band_2_threshold::Float64 = 0.66
-    ratio_lower::Float64 = 0.0
-    ratio_offset::Float64 = 0.0
-    ratio_upper::Float64 = 0.53
-    marker_strel = strel_box((7,7))
-    opening_strel = strel_diamond((3,3))
-end
-
-# When update is merged, we can call this directly.
-function (f::Watkins2025CloudMask)(img::AbstractArray{<:Union{AbstractRGB,TransparentRGB}})
-    init_cloud_mask = LopezAcostaCloudMask(f.prelim_threshold,
-                                           f.band_7_threshold,
-                                           f.band_2_threshold,
-                                           f.ratio_lower,
-                                           f.ratio_offset,
-                                           f.ratio_upper)(img)
-    markers = opening(init_cloud_mask, f.marker_strel)
-    reconstructed = mreconstruct(dilate, markers, init_cloud_mask, f.opening_strel)
-    smoothed = opening(reconstructed, f.opening_strel)
-    filled = fill_holes(smoothed)
-    return filled
-end
-
 old_cmask = LopezAcostaCloudMask();
 new_init = LopezAcostaCloudMask(cloud_mask_settings...);
 new_cmask = Watkins2025CloudMask();
 
-dataset = data_loader(c -> c.case_number < 190);
 for case in dataset
-    name = case.name
-    fc = RGB.(case.modis_falsecolor)
-    lm = Gray.(case.modis_landmask) .> 0
+    cn = lpad(case.info[:case_number], 3, "0")
+    region = case.info[:region]
+    date = Dates.format(case.info[:pass_time], "YYYYmmdd")
+    sat = case.info[:satellite]
+    name = join([cn, region, "100km", date, sat, "250m"], "-")
+    
+    fc = RGB.(modis_falsecolor(case))
+    lm = Gray.(modis_landmask(case)) .> 0
     old = old_cmask(fc)
     new_raw = new_init(fc)
     new_clean = new_cmask(fc)
