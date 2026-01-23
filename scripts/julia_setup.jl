@@ -13,6 +13,7 @@ Pkg.add(["IJulia",
         "Images",
         "ImageSegmentation",
         "FileIO"])
+Pkg.update("IceFloeTracker")
 using IceFloeTracker
 
 Pkg.build()
