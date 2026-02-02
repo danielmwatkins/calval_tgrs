@@ -1,0 +1,5 @@
+"label","row_centroid","col_centroid","min_row","min_col","max_row","max_col","area","convex_area","major_axis_length","minor_axis_length","orientation","perimeter","circularity","solidity","cloud_fraction_ift","ice_fraction_ift","tc_band_1_reflectance","tc_band_4_reflectance","tc_band_3_reflectance","fc_band_7_reflectance","fc_band_2_reflectance","fc_band_1_reflectance","proc_grayscale_std","tc_band_1_std","boundary_gradient","interior_gradient"
+1.0,91.165,356.748,78.0,346.0,106.0,367.0,401,403.0,31.531,16.59,0.467,79.841,0.791,1.005,1.0,0.0,0.862,0.862,0.867,0.62,0.903,0.918,0.0,0.031,0.0,0.0
+2.0,98.361,195.875,88.0,183.0,109.0,209.0,457,457.0,27.666,21.158,-1.213,78.77,0.926,1.0,1.0,0.0,0.827,0.831,0.829,0.598,0.873,0.885,0.0,0.051,0.0,0.0
+3.0,316.896,93.527,301.0,78.0,333.0,111.0,662,668.0,41.438,20.746,-0.754,105.397,0.749,1.009,1.0,0.0,0.869,0.872,0.88,0.604,0.915,0.925,0.0,0.016,0.0,0.0
+4.0,322.995,53.935,316.0,47.0,331.0,62.0,185,185.0,19.731,12.107,-0.829,50.627,0.907,1.0,1.0,0.0,0.872,0.872,0.88,0.614,0.918,0.923,0.0,0.015,0.0,0.0
