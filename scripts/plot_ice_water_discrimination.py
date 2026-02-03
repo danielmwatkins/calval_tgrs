@@ -1,11 +1,11 @@
 import numpy as np
+import os
 import pandas as pd
 import ultraplot as pplt
-import rasterio as rio
-from rasterio.plot import reshape_as_image
-import skimage
+import skimage.io as io
+from skimage.morphology import dilation, erosion
 
-# Location of validation dataset with truecolor and manually validated images
+# Load the list of cloud clearing evaluation cases
 dataloc = '../../ice_floe_validation_dataset/'
 df = pd.read_csv(dataloc + '/data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
@@ -24,39 +24,150 @@ def fname(case_data, imtype='labeled_floes'):
     region = case_data['region']
     sat = case_data['satellite']
     if 'binary' in imtype:
-        return  '-'.join([cn, region, date, sat, imtype + '.png'])
-        
+        return  '-'.join([cn, region, date, sat, imtype + '.png'])       
     elif imtype in ['truecolor', 'falsecolor', 'cloudfraction', 'labeled_floes',]:
         prefix = '-'.join([cn, region, '100km', date])
         return '.'.join([prefix, sat, imtype, '250m', 'tiff'])
-
     elif imtype in ['seaice', 'landmask',]:
         prefix = '-'.join([cn, region, '100km', date])
         return '.'.join([prefix, 'masie', imtype, '250m', 'tiff'])     
 
-    elif imtype == 'cloudfraction_numeric':
-        
-        return '-'.join([cn, region, date, sat, 'cloudfraction.csv'])
-
-
-case = '006_terra'
+# Load raster data and masks
+tc_dataloc = dataloc + 'data/modis/truecolor/'
 fc_dataloc = dataloc + 'data/modis/falsecolor/'
+lm_dataloc = dataloc + 'data/validation_dataset/binary_landmask/'
+lb_dataloc = dataloc + 'data/validation_dataset/binary_floes/'
+lf_dataloc = dataloc + 'data/validation_dataset/binary_landfast/'
+ice_mask_loc = '../data/ift_prelim_ice_mask/'
+cloud_mask_loc = '../data/ift_cloud_mask/cleaned/'
 
-with rio.open(fc_dataloc + fname(df.loc[case,:], 'falsecolor')) as im:
-    fc_img = im.read()
+tc_images = {}
+fc_images = {}
+lb_images = {}
+lf_images = {}
+lm_images = {}
+ice_mask_images = {}
+cloud_mask_images = {}
 
-# with rio.open(lm_dataloc + fname(df.loc[case,:], 'binary_landmask')) as im:
-#     landmask = im.read()
+missing = []
+plot_cases = ['011', '022', '108', '128']
+for row, data in df.iterrows():
+    cn = data['case_number']
+    date = pd.to_datetime(data['start_date']).strftime('%Y%m%d')
+    region = data['region']
+    sat = data['satellite']
+    
+    if cn in plot_cases:
 
-initial = skimage.io.imread("../data/ift_cloud_mask/initial/006-baffin_bay-100km-20220530-terra-250m-cloudmask.png")
-cleaned = skimage.io.imread("../data/ift_cloud_mask/cleaned/006-baffin_bay-100km-20220530-terra-250m-cloudmask.png")
+        prefix = '-'.join([cn, region, '100km', date])        
+        tc_images[row] = io.imread(tc_dataloc + '.'.join([prefix, sat, 'truecolor', '250m', 'tiff']))
+        fc_images[row] = io.imread(fc_dataloc + '.'.join([prefix, sat, 'falsecolor', '250m', 'tiff']))
+        lb_images[row] = io.imread(lb_dataloc +  '-'.join([cn, region, date, sat, 'binary_floes' + '.png']))
+        lf_images[row] = io.imread(lf_dataloc +  '-'.join([cn, region, date, sat, 'binary_landfast' + '.png']))
+        lm_images[row] = io.imread(lm_dataloc +  '-'.join([cn, region, date, sat, 'binary_landmask' + '.png']))
+        ice_mask_images[row] = io.imread(ice_mask_loc +  '-'.join([cn, region, '100km', date, sat, '250m', 'prelim_icemask' + '.png']))
+        cloud_mask_images[row] = io.imread(cloud_mask_loc +  '-'.join([cn, region, '100km', date, sat, '250m', 'cloudmask' + '.png']))
 
-fig, ax = pplt.subplots(ncols=3)
-ax[0].imshow(reshape_as_image(fc_img))
-ax[1].imshow(initial, cmap='mono_r')
-ax[2].imshow(cleaned, cmap='mono_r')
-ax[0].format(title='False Color Image')
-ax[1].format(title='Threshold Mask')
-ax[2].format(title='Cleaned Mask')
-fig.format(xticks='none', yticks='none', abc=True)
-fig.save('../figures/fig_06_cloud_mask_example.png', dpi=300)
+fig, ax = pplt.subplots(nrows=3, ncols=4, sharex=False, sharey=True)
+titles = []
+for i, case_number in enumerate(plot_cases):
+    case = case_number + '_aqua'
+    region = df.loc[case, 'region'].replace('_', ' ').title()
+    titles.append(str(case_number) + ' ' + region)
+    ax[0,i].imshow(tc_images[case])
+    
+    ice_mask = ice_mask_images[case][:,:]
+    cloud_mask = cloud_mask_images[case][:,:]
+    land_mask = lm_images[case][:,:]
+
+    # Band 1
+    red_band = tc_images[case][:,:,0].copy()
+    red_band[cloud_mask > 0] = 0
+    red_band[land_mask > 0] = 0
+    
+    data = np.ravel(red_band)
+    data = data[data > 0]
+    y, xe = np.histogram(data, bins=np.linspace(0, 255, 64))
+    xc = (xe[1:] + xe[:-1]) / 2
+
+    ax[1, i].plot(xc, y / np.sum(y), color='red5', label='Band 1')
+    
+    idxmax = y[xc > 75].argmax()
+    peak_loc = xc[xc > 75][idxmax]
+
+    bright_ice = ice_mask & (red_band >= peak_loc)
+    
+    ax[1, i].axvline(75, lw=1, color='red5', ls='--')
+    ax[1, i].axvline(peak_loc, lw=1, color='red5', ls='-.')
+    ax[1, i].axvline(0.5 * (75 + peak_loc), lw=1, color='red5', ls='-')
+    
+    ax[1, i].format(ylabel='', xlabel='Reflectance')
+
+    # Band 2
+    nir_band = fc_images[case][:,:,1].copy()
+    nir_band[cloud_mask > 0] = 0
+    nir_band[land_mask > 0] = 0
+    
+    data = np.ravel(nir_band)
+    data = data[data > 0]
+    y, xe = np.histogram(data, bins=np.linspace(0, 255, 64))
+    xc = (xe[1:] + xe[:-1]) / 2
+
+    ax[1, i].plot(xc, y / np.sum(y), color='blue8', label='Band 2')
+    
+    idxmax = y[xc > 75].argmax()
+    peak_loc = xc[xc > 75][idxmax]
+    bright_ice = ice_mask & (bright_ice | (nir_band >= peak_loc))
+    # ax[1, i].axvline(75, lw=1, color='k', ls='--')
+    ax[1, i].axvline(peak_loc, lw=1, color='blue8', ls=':')
+    # ax[1, i].axvline(0.5 * (75 + peak_loc), lw=1, color='k', ls='-')
+
+    
+
+    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask > 0), c='blue6')
+    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask == 0), c='gray4')
+    ax[2,i].imshow(np.ma.masked_array(bright_ice, mask=bright_ice == 0), c='w')
+    
+    
+    ax[2,i].imshow(np.ma.masked_array(cloud_mask, mask=cloud_mask == 0), c='lilac')
+    ax[2,i].imshow(np.ma.masked_array(land_mask, mask=land_mask == 0), c='gray9')
+    
+    # labeled floes
+    if case in lb_images:
+        if len(lb_images[case].shape) == 3:
+            manual_ice = lb_images[case][:,:,0]
+        else:
+            manual_ice = lb_images[case][:,:]
+        outlines = dilation(manual_ice) - erosion(manual_ice)
+        ax[2,i].imshow(np.ma.masked_array(outlines, mask=outlines==0), c='red5', alpha=1)
+  
+    # labeled landfast
+    if case in lf_images:
+        if len(lf_images[case].shape) == 3:
+            manual_landfast = lf_images[case][:,:,0]
+        else:
+            manual_landfast = lf_images[case][:,:]
+        
+        land_buffer = dilation(land_mask)
+        manual_landfast[land_buffer > 0] = 255
+        outlines = dilation(manual_landfast) - erosion(manual_landfast)
+        ax[2,i].imshow(np.ma.masked_array(outlines, mask=outlines == 0), c='yellow6')
+
+
+for j in [0, 2]:
+    for i in range(0, 4):
+        ax[j, i].format(xticks='none', yticks='none')
+
+h = []
+for color in ['gray4', 'w', 'blue6', 'lilac', 'red5', 'yellow4', 'gray0']:
+    h.append(ax.plot([],[],m='s', lw=0, c=color, edgecolor='k'))
+ax[2,-1].legend(h, ['IFT Sea Ice', 'IFT Bright Ice', 'IFT Water', 'IFT Cloud', 'Manual Floes', 'Manual Landfast Ice', 'Land'], loc='r', ncols=1)
+
+h = []
+for ls in ['--', '-.', '-']:
+    h.append(ax.plot([],[],m='', lw=1, color='k'))
+ax[1,-1].legend(h, ['Minimum Ice', 'Brightness Peak', 'Ice Threshold'], loc='r', ncols=1)
+
+fig.format(abc=True)
+fig.format(toplabels=titles, leftlabels=['True Color (1-4-3)', 'IFT Masks', 'Reflectance PDF'])
+fig.save("../figures/fig_07_ice_water_discrimination.png", dpi=300)
