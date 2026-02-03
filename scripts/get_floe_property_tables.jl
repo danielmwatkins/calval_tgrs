@@ -117,9 +117,9 @@ for case in cases
         df = filter(:area => a -> a .> min_area, df)
       
         if nrow(df) > 0
-            
+            df[!, :case_number] .= Int64(case.info.case_number)
             df[!, :circularity] .= 4 .* pi .* df[!, :area] ./ (df[!, :perimeter] .^ 2)
-            df[!, :solidity] .= df[!, :convex_area] ./ (df[!, :area])
+            df[!, :solidity] .= df[!, :area] ./ (df[!, :convex_area])
               
             # Get segment means
             cloudmask = create_cloudmask(falsecolor_image, DWCM)
