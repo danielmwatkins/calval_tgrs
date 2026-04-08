@@ -187,8 +187,6 @@ def draw_mask(t0=110,  t7=200, t2=190, r_lower=0, r_upper=0.75, variant="LSW2019
         
                 # Other possibility: what if t0 = 0?
 
-
-    
 ##### Load raster data and masks
 fc_dataloc = dataloc + 'data/modis/falsecolor/'
 tc_dataloc = dataloc + 'data/modis/truecolor/'
@@ -235,7 +233,6 @@ for row, data in df.iterrows():
                     missing.append(fname(df.loc[row,:], imtype))
             elif imtype in ['seaice', 'landmask']: # masie images
                 missing.append(fname(df.loc[row,:], imtype))
-
 
 # Load the numeric cloud fraction data
 cf_images = {}
