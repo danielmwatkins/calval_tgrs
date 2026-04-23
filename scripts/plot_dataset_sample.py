@@ -4,8 +4,6 @@ import pandas as pd
 import ultraplot as pplt
 import rasterio as rio
 from rasterio.plot import reshape_as_image
-from sklearn.model_selection import KFold
-from scipy.interpolate import interp1d
 
 # Load the list of cloud clearing evaluation cases
 dataloc = '../../ice_floe_validation_dataset/'
