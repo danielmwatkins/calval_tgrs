@@ -34,6 +34,7 @@ def fname(case_data, imtype='labeled_floes'):
 
 # Load raster data and masks
 tc_dataloc = dataloc + 'data/modis/truecolor/'
+fc_dataloc = dataloc + 'data/modis/falsecolor/'
 lm_dataloc = dataloc + 'data/validation_dataset/binary_landmask/'
 lb_dataloc = dataloc + 'data/validation_dataset/binary_floes/'
 lf_dataloc = dataloc + 'data/validation_dataset/binary_landfast/'
@@ -41,6 +42,7 @@ ice_mask_loc = '../data/ift_prelim_ice_mask/'
 cloud_mask_loc = '../data/ift_cloud_mask/cleaned/'
 
 tc_images = {}
+fc_images = {}
 lb_images = {}
 lf_images = {}
 lm_images = {}
@@ -59,6 +61,7 @@ for row, data in df.iterrows():
 
         prefix = '-'.join([cn, region, '100km', date])        
         tc_images[row] = io.imread(tc_dataloc + '.'.join([prefix, sat, 'truecolor', '250m', 'tiff']))
+        fc_images[row] = io.imread(fc_dataloc + '.'.join([prefix, sat, 'falsecolor', '250m', 'tiff']))
         lb_images[row] = io.imread(lb_dataloc +  '-'.join([cn, region, date, sat, 'binary_floes' + '.png']))
         lf_images[row] = io.imread(lf_dataloc +  '-'.join([cn, region, date, sat, 'binary_landfast' + '.png']))
         lm_images[row] = io.imread(lm_dataloc +  '-'.join([cn, region, date, sat, 'binary_landmask' + '.png']))
@@ -74,13 +77,59 @@ for i, case_number in enumerate(plot_cases):
     ax[0,i].imshow(tc_images[case])
     
     ice_mask = ice_mask_images[case][:,:]
-    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask > 0), c='blue6')
-    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask == 0), c='w')
-
     cloud_mask = cloud_mask_images[case][:,:]
-    ax[2,i].imshow(np.ma.masked_array(cloud_mask, mask=cloud_mask == 0), c='lilac')
-    
     land_mask = lm_images[case][:,:]
+
+    # Band 1
+    red_band = tc_images[case][:,:,0].copy()
+    red_band[cloud_mask > 0] = 0
+    red_band[land_mask > 0] = 0
+    
+    data = np.ravel(red_band)
+    data = data[data > 0]
+    y, xe = np.histogram(data, bins=np.linspace(0, 255, 64))
+    xc = (xe[1:] + xe[:-1]) / 2
+
+    ax[1, i].plot(xc, y / np.sum(y), color='red5', label='Band 1')
+    
+    idxmax = y[xc > 75].argmax()
+    peak_loc = xc[xc > 75][idxmax]
+
+    bright_ice = ice_mask & (red_band >= peak_loc)
+    
+    ax[1, i].axvline(75, lw=1, color='red5', ls='--')
+    ax[1, i].axvline(peak_loc, lw=1, color='red5', ls='-.')
+    ax[1, i].axvline(0.5 * (75 + peak_loc), lw=1, color='red5', ls='-')
+    
+    ax[1, i].format(ylabel='', xlabel='Reflectance')
+
+    # Band 2
+    nir_band = fc_images[case][:,:,1].copy()
+    nir_band[cloud_mask > 0] = 0
+    nir_band[land_mask > 0] = 0
+    
+    data = np.ravel(nir_band)
+    data = data[data > 0]
+    y, xe = np.histogram(data, bins=np.linspace(0, 255, 64))
+    xc = (xe[1:] + xe[:-1]) / 2
+
+    ax[1, i].plot(xc, y / np.sum(y), color='blue8', label='Band 2')
+    
+    idxmax = y[xc > 75].argmax()
+    peak_loc = xc[xc > 75][idxmax]
+    bright_ice = ice_mask & (bright_ice | (nir_band >= peak_loc))
+    # ax[1, i].axvline(75, lw=1, color='k', ls='--')
+    ax[1, i].axvline(peak_loc, lw=1, color='blue8', ls=':')
+    # ax[1, i].axvline(0.5 * (75 + peak_loc), lw=1, color='k', ls='-')
+
+    
+
+    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask > 0), c='blue6')
+    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask == 0), c='gray4')
+    ax[2,i].imshow(np.ma.masked_array(bright_ice, mask=bright_ice == 0), c='w')
+    
+    
+    ax[2,i].imshow(np.ma.masked_array(cloud_mask, mask=cloud_mask == 0), c='lilac')
     ax[2,i].imshow(np.ma.masked_array(land_mask, mask=land_mask == 0), c='gray9')
     
     # labeled floes
@@ -91,7 +140,7 @@ for i, case_number in enumerate(plot_cases):
             manual_ice = lb_images[case][:,:]
         outlines = dilation(manual_ice) - erosion(manual_ice)
         ax[2,i].imshow(np.ma.masked_array(outlines, mask=outlines==0), c='red5', alpha=1)
-        
+  
     # labeled landfast
     if case in lf_images:
         if len(lf_images[case].shape) == 3:
@@ -102,35 +151,17 @@ for i, case_number in enumerate(plot_cases):
         land_buffer = dilation(land_mask)
         manual_landfast[land_buffer > 0] = 255
         outlines = dilation(manual_landfast) - erosion(manual_landfast)
-        ax[2,i].imshow(np.ma.masked_array(outlines, mask=outlines == 0), c='yellow4')
+        ax[2,i].imshow(np.ma.masked_array(outlines, mask=outlines == 0), c='yellow6')
 
-    red_band = tc_images[case][:,:,0].copy()
-    red_band[cloud_mask > 0] = 0
-    red_band[land_mask > 0] = 0
-    
-    data = np.ravel(red_band)
-    data = data[data > 0]
-    y, xe = np.histogram(data, bins=np.linspace(0, 255, 64))
-    xc = (xe[1:] + xe[:-1]) / 2
-
-    ax[1, i].plot(xc, y / np.sum(y), color='red5')
-    
-    idxmax = y[xc > 75].argmax()
-    peak_loc = xc[xc > 75][idxmax]
-    ax[1, i].axvline(75, lw=1, color='k', ls='--')
-    ax[1, i].axvline(peak_loc, lw=1, color='k', ls='-.')
-    ax[1, i].axvline(0.5 * (75 + peak_loc), lw=1, color='k', ls='-')
-    
-    ax[1, i].format(ylabel='', xlabel='Band 1 Reflectance')
 
 for j in [0, 2]:
     for i in range(0, 4):
         ax[j, i].format(xticks='none', yticks='none')
 
 h = []
-for color in ['w', 'blue6', 'lilac', 'red5', 'yellow4', 'gray8']:
+for color in ['gray4', 'w', 'blue6', 'lilac', 'red5', 'yellow4', 'gray9']:
     h.append(ax.plot([],[],m='s', lw=0, c=color, edgecolor='k'))
-ax[2,-1].legend(h, ['IFT Sea Ice', 'IFT Water', 'IFT Cloud', 'Manual Floes', 'Manual Landfast Ice', 'Land'], loc='r', ncols=1)
+ax[2,-1].legend(h, ['IFT Sea Ice', 'IFT Bright Ice', 'IFT Water', 'IFT Cloud', 'Manual Floes', 'Manual Landfast Ice', 'Land'], loc='r', ncols=1)
 
 h = []
 for ls in ['--', '-.', '-']:
