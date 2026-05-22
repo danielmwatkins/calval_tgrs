@@ -9,7 +9,6 @@ dependencies:
   - netcdf4
   - pandas
   - pyproj
-  - matplotlib
   - ultraplot
   - rasterio
   - scikit-image

@@ -1,9 +1,36 @@
 # calval_tgrs
-Calibration and validation code for the IFT TGRS manuscript. Setup:
+Calibration and validation code for the IFT TGRS manuscript. 
+
+## setup
+- Set up the Python environment using  
+  ```conda env create -f calval.yml```
+- Set up the Julia environment using  
+  ```julia scripts/julia_setup.jl```
+- Clone the ice floe validation dataset
+  ```git clone https://github.com/danielmwatkins/ice-floe-validation-dataset.git```
+
+## workflow
+### ice floe validation dataset
+Dataset summary figures are produced using Python code within the ice floe validation dataset folder.
+  1. Fig. 1: Sea ice climatology and analysis locations. Run ```python plot_locations.py``` in the scripts folder of the ice floe validation dataset.
+  2. Fig. 2: Climatology of sea ice fraction. ```plot_sif_climatology.py```
+  3. Fig. 3: Sample of the contents of the validation datset. ```plot_dataset_sample.py```
+  4. Fig. 4: Summary of the contents of the dataset. ```plot_dataset_summary.py```
+Running each of the listed Python scripts will produce figures 1-4 of the manuscript and place them in the `figures` folder in the ice floe validation dataset folder.  
+
+## to-do items
+- Updating validation dataset usage. With the new tools for validation, we can access everything with the data tool rather than cloning the directory directly.
+
+
+
+## structure
+- Download the Ice Floe Validation Dataset
+  
+
 - Download the ice_floe_validation_dataset and put it in the same directory as calval_tgrs, so relative imports will work
-- Install the calval environment
+
 - Install the latest version of Julia
-- Run the julia_setup.jl script
+- Run the julia_setup.qjl script
 
 # data
 The IFT is calibrated using the (Ice Floe Validation Dataset)[https://github.com/danielmwatkins/ice_floe_validation_dataset] which contains 100 km by 100 km images from the circumpolar Arctic MIZs.
