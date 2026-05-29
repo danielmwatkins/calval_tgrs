@@ -1,22 +1,24 @@
 # Sets up the cal-val environment for running the IFT scripts
-
+# and initialize the Jupyter kernelß
 using Pkg;
 Pkg.activate("calval")
 Pkg.add(; name="IceFloeTracker", rev="main")
 
 Pkg.add(["IJulia",
         "DataFrames",
+        "Plots",
         "CairoMakie",
         "CSVFiles",
         "Interpolations",
         "Images",
         "ImageSegmentation",
         "FileIO",
-        "Graphs", # used for the segmentation merges
         "StatsBase" 
         ])
 Pkg.update("IceFloeTracker")
+
 using IceFloeTracker
+using IJulia
 
 Pkg.build()
 Pkg.resolve()

@@ -13,13 +13,23 @@ Calibration and validation code for the IFT TGRS manuscript.
 ### ice floe validation dataset
 Dataset summary figures are produced using Python code within the ice floe validation dataset folder.
   1. Fig. 1: Sea ice climatology and analysis locations. Run ```python plot_locations.py``` in the scripts folder of the ice floe validation dataset.
-  2. Fig. 2: Climatology of sea ice fraction. ```plot_sif_climatology.py```
-  3. Fig. 3: Sample of the contents of the validation datset. ```plot_dataset_sample.py```
-  4. Fig. 4: Summary of the contents of the dataset. ```plot_dataset_summary.py```
+  2. Fig. 2: Climatology of sea ice fraction. ```python plot_sif_climatology.py```
+  3. Fig. 3: Sample of the contents of the validation datset. ```python plot_dataset_sample.py```
+  4. Fig. 4: Summary of the contents of the dataset. ```python plot_dataset_summary.py```
 Running each of the listed Python scripts will produce figures 1-4 of the manuscript and place them in the `figures` folder in the ice floe validation dataset folder.  
 
+### calibration and validation 
+
+1. Fig. 5: Histograms of band 2/band 7 joint distributions. ```python calibrate_cloudmask_plot_histograms.py```
+2. Fig. 6: Example of updated cloud mask. ```python plot_cloud_mask_example.py```
+3. Fig. 7: Initial segmentation: water, ice, cloud, land. ```python plot_ice_water_discrimination.py```
+4. Fig. 8: Calibration of the floe identification scheme. (Potentially including flow chart)
+5. Fig. 9: Final segmentation with floes.
+6. Fig. 10: Length-dependent threshold functions.
+7. Fig. 11: Example of tracking results.
+
 ## to-do items
-- Updating validation dataset usage. With the new tools for validation, we can access everything with the data tool rather than cloning the directory directly.
+- Calibration of the floe identification scheme. This has multiple layers. The first goal is to optimize the measurements against some basic metrics (precision, recall) and include the confusion matrix for all images, not just those with floes. Further, calculate the objectwise metrics of over/under 
 
 
 
