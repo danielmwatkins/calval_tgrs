@@ -6,7 +6,7 @@ import skimage.io as io
 from skimage.morphology import dilation, erosion
 
 # Load the list of cloud clearing evaluation cases
-dataloc = '../../ice_floe_validation_dataset/'
+dataloc = '../../cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
 df = pd.read_csv(dataloc + '/data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
 df.groupby('region').count()
@@ -38,7 +38,8 @@ lm_dataloc = dataloc + 'data/validation_dataset/binary_landmask/'
 lb_dataloc = dataloc + 'data/validation_dataset/binary_floes/'
 lf_dataloc = dataloc + 'data/validation_dataset/binary_landfast/'
 ice_mask_loc = '../data/ift_prelim_ice_mask/'
-cloud_mask_loc = '../data/ift_cloud_mask/cleaned/'
+cloud_mask_loc = '../data/ift_cloud_mask/dmw2026/'
+modis_mask_loc = '../data/cloudfraction_numeric/'
 
 tc_images = {}
 lb_images = {}
@@ -46,9 +47,10 @@ lf_images = {}
 lm_images = {}
 ice_mask_images = {}
 cloud_mask_images = {}
+modis_mask_images = {}
 
 missing = []
-plot_cases = ['011', '022', '108', '128']
+plot_cases = ['011', '022', '104', '108']
 for row, data in df.iterrows():
     cn = data['case_number']
     date = pd.to_datetime(data['start_date']).strftime('%Y%m%d')
@@ -64,21 +66,29 @@ for row, data in df.iterrows():
         lm_images[row] = io.imread(lm_dataloc +  '-'.join([cn, region, date, sat, 'binary_landmask' + '.png']))
         ice_mask_images[row] = io.imread(ice_mask_loc +  '-'.join([cn, region, '100km', date, sat, '250m', 'prelim_icemask' + '.png']))
         cloud_mask_images[row] = io.imread(cloud_mask_loc +  '-'.join([cn, region, '100km', date, sat, '250m', 'cloudmask' + '.png']))
+        modis_mask_images[row] = pd.read_csv(modis_mask_loc + '-'.join([cn, region, date, sat, 'cloudfraction.csv']), index_col=0)
+        modis_mask_images[row].index = modis_mask_images[row].index.astype(int)
+        modis_mask_images[row].columns = modis_mask_images[row].columns.astype(int)
 
-fig, ax = pplt.subplots(nrows=3, ncols=4, sharex=False, sharey=True)
+pplt.rc['abc.bbox'] = True
+pplt.rc['abc.bboxalpha'] = 1
+pplt.rc['abc.loc'] = 'ul'
+
+fig, ax = pplt.subplots(nrows=4, ncols=4, sharex=False, sharey=True)
 titles = []
 for i, case_number in enumerate(plot_cases):
     case = case_number + '_aqua'
     region = df.loc[case, 'region'].replace('_', ' ').title()
     titles.append(str(case_number) + ' ' + region)
     ax[0,i].imshow(tc_images[case])
+
     
     ice_mask = ice_mask_images[case][:,:]
-    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask > 0), c='blue6')
+    ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask > 0), c=(46/255, 124/255, 163/255))
     ax[2,i].imshow(np.ma.masked_array(ice_mask, mask=ice_mask == 0), c='w')
 
     cloud_mask = cloud_mask_images[case][:,:]
-    ax[2,i].imshow(np.ma.masked_array(cloud_mask, mask=cloud_mask == 0), c='lilac')
+    ax[2,i].imshow(np.ma.masked_array(cloud_mask, mask=cloud_mask == 0), c=(216/255, 182/255, 240/255))
     
     land_mask = lm_images[case][:,:]
     ax[2,i].imshow(np.ma.masked_array(land_mask, mask=land_mask == 0), c='gray9')
@@ -123,12 +133,16 @@ for i, case_number in enumerate(plot_cases):
     
     ax[1, i].format(ylabel='', xlabel='Band 1 Reflectance')
 
-for j in [0, 2]:
+    # MODIS cloud fraction
+    c = ax[3,i].pcolormesh(modis_mask_images[case].values, vmin=0, vmax=100, N=17, cmap='Blues_r')
+
+
+for j in [0, 2, 3]:
     for i in range(0, 4):
         ax[j, i].format(xticks='none', yticks='none')
 
 h = []
-for color in ['w', 'blue6', 'lilac', 'red5', 'yellow4', 'gray8']:
+for color in ['w', (46/255, 124/255, 163/255), (216/255, 182/255, 240/255), 'red5', 'yellow4', 'gray8']:
     h.append(ax.plot([],[],m='s', lw=0, c=color, edgecolor='k'))
 ax[2,-1].legend(h, ['IFT Sea Ice', 'IFT Water', 'IFT Cloud', 'Manual Floes', 'Manual Landfast Ice', 'Land'], loc='r', ncols=1)
 
@@ -137,6 +151,10 @@ for ls in ['--', '-.', '-']:
     h.append(ax.plot([],[],m='', lw=1, color='k'))
 ax[1,-1].legend(h, ['Minimum Ice', 'Brightness Peak', 'Ice Threshold'], loc='r', ncols=1)
 
+ax[3, -1].colorbar(c, label='MODIS Cloud Fraction (%)')
+
+ax[3,:].format(yreverse=True)
+
 fig.format(abc=True)
-fig.format(toplabels=titles, leftlabels=['True Color (1-4-3)', 'IFT Masks', 'Reflectance PDF'])
-fig.save("../figures/fig_07_ice_water_discrimination.png", dpi=300)
+fig.format(toplabels=titles, leftlabels=['True Color (1-4-3)', 'Reflectance PDF', 'IFT Masks', 'MODIS Cloud Fraction'])
+fig.save("../figures/fig_05_ice_water_discrimination.png", dpi=300)
