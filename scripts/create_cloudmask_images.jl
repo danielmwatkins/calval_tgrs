@@ -3,7 +3,7 @@ Loop through the validation dataset, creating a cloud mask for each case. Genera
 """
 
 using Pkg
-Pkg.activate("cal-val")
+Pkg.activate("calval")
 using IceFloeTracker
 using IceFloeTracker: AbstractCloudMaskAlgorithm, fill_holes
 using Images
@@ -23,7 +23,7 @@ cloud_mask_settings = (
 
 old_cmask = LopezAcostaCloudMask();
 new_init = LopezAcostaCloudMask(cloud_mask_settings...);
-new_cmask = Watkins2025CloudMask();
+new_cmask = Watkins2026CloudMask(band_7_threshold=0.15, band_2_threshold=0.34, opening_strel=strel_box((5, 5)), dilation_strel=strel_disk(5));
 
 for case in dataset
     cn = lpad(case.info[:case_number], 3, "0")
@@ -35,9 +35,10 @@ for case in dataset
     fc = RGB.(modis_falsecolor(case))
     lm = Gray.(modis_landmask(case)) .> 0
     old = old_cmask(fc)
-    new_raw = new_init(fc)
+    # new_raw = new_init(fc)
     new_clean = new_cmask(fc)
     save(joinpath(save_loc, "lopez_acosta", name*"-cloudmask.png"), old)
-    save(joinpath(save_loc, "initial", name*"-cloudmask.png"), new_raw)
-    save(joinpath(save_loc, "cleaned", name*"-cloudmask.png"), new_clean)
+    # save(joinpath(save_loc, "initial", name*"-cloudmask.png"), new_raw)
+    # save(joinpath(save_loc, "initial", name*"-cloudmask.png"), new_raw)
+    save(joinpath(save_loc, "dmw2026", name*"-cloudmask.png"), new_clean)
 end
