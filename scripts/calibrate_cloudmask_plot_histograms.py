@@ -30,7 +30,7 @@ title_case = {'baffin_bay': 'Baffin Bay',
 
 # load the list of cloud clearing evaluation cases
 # dataloc = '/Users/dwatkin2/Documents/research/manuscripts/cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
-dataloc = '../../ice_floe_validation_dataset/'
+dataloc = '../../cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
 df = pd.read_csv(dataloc + '/data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
 df.groupby('region').count()
@@ -285,7 +285,7 @@ pixel_data = {'cloudy': {},
              }
 
 # initialize
-bands = ['b1', 'b2', 'b3', 'b4', 'b7', 'la2019_mask', 'dmw2025_mask']
+bands = ['b1', 'b2', 'b3', 'b4', 'b7', 'la2019_mask', 'dmw2025_mask', 'dmw2026_mask']
 
 for s in pixel_data:
     for b in bands:
@@ -303,7 +303,8 @@ for row, rowdata in df.iterrows():
             'b4': tc_images[case][1,:,:],
             'b7': fc_images[case][0,:,:],
             'la2019_mask': cloud_mask_original[case][0,:,:],
-            'dmw2025_mask': cloud_mask_new_cleaned[case][0,:,:]
+            'dmw2025_mask': cloud_mask_new_cleaned[case][0,:,:],
+            'dmw2026_mask': (fc_images[case][1,:,:] > 150) & (fc_images[case][0,:,:] > 50)
            }
     
     # get boolean masks for cloud and land
@@ -438,20 +439,26 @@ fig.format(abc=True)
 fig.save('../figures/fig_05_cloud_mask_histograms.png', dpi=300)
 
 #### Validation against held-out data ####
-print("True positive rate")
+print("True positive rate: Correctly flagged cloudy pixels")
 print(
     (pixel_data['cloudy'].loc[~pixel_data['cloudy'].training,
-        ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+        ['la2019_mask', 'dmw2025_mask', 'dmw2026_mask']] > 0).mean())
 
-print("False positive rate: cloudy ice")
+print("False negative rate: Cloudy pixels left uncovered")
+print(
+    (pixel_data['cloudy'].loc[~pixel_data['cloudy'].training,
+        ['la2019_mask', 'dmw2025_mask', 'dmw2026_mask']] == 0).mean())
+
+
+print("False positive rate: Ice under thin cloud flagged as cloud")
 print(
     (pixel_data['cloudy_ice'].loc[~pixel_data['cloudy_ice'].training,
-        ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+        ['la2019_mask', 'dmw2025_mask', 'dmw2026_mask']] > 0).mean())
 
-print("False positive rate: clear-sky ice")
+print("False positive rate: Clear-sky ice flagged as cloud")
 print((pixel_data['clearsky_ice'].loc[~pixel_data['clearsky_ice'].training,
-    ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+    ['la2019_mask', 'dmw2025_mask', 'dmw2026_mask']] > 0).mean())
 
-print("False positive rate: clear and cloudy ice")
+print("False positive rate: Ice under clear skies or thin clouds flagged as cloud")
 temp_df = pd.concat([pixel_data['clearsky_ice'], pixel_data['cloudy_ice']])
-print((temp_df.loc[~temp_df.training, ['la2019_mask', 'dmw2025_mask']] > 0).mean())
+print((temp_df.loc[~temp_df.training, ['la2019_mask', 'dmw2025_mask', 'dmw2026_mask']] > 0).mean())
