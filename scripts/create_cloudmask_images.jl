@@ -23,7 +23,7 @@ cloud_mask_settings = (
 
 old_cmask = LopezAcostaCloudMask();
 new_init = LopezAcostaCloudMask(cloud_mask_settings...);
-new_cmask = Watkins2026CloudMask(band_7_threshold=0.15, band_2_threshold=0.34, opening_strel=strel_box((5, 5)), dilation_strel=strel_disk(5));
+new_cmask = Watkins2026CloudMask(band_7_threshold=0.16, band_2_threshold=0.34, opening_strel=strel_disk(3), dilation_strel=strel_disk(2));
 
 for case in dataset
     cn = lpad(case.info[:case_number], 3, "0")

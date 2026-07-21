@@ -6,7 +6,7 @@ import skimage.io as io
 from skimage.morphology import dilation, erosion
 
 # Load the list of cloud clearing evaluation cases
-dataloc = '../../cal-val_ice_floe_tracker/ice_floe_validation_dataset/'
+dataloc = '../../ice_floe_validation_dataset/'
 df = pd.read_csv(dataloc + '/data/validation_dataset/validation_dataset.csv')
 df['case_number'] = [str(cn).zfill(3) for cn in df['case_number']]
 df.groupby('region').count()
@@ -123,13 +123,13 @@ for i, case_number in enumerate(plot_cases):
     y, xe = np.histogram(data, bins=np.linspace(0, 255, 64))
     xc = (xe[1:] + xe[:-1]) / 2
 
-    ax[1, i].plot(xc, y / np.sum(y), color='red5')
+    ax[1, i].plot(xc/255, y / np.sum(y), color='red5')
     
     idxmax = y[xc > 75].argmax()
     peak_loc = xc[xc > 75][idxmax]
-    ax[1, i].axvline(75, lw=1, color='k', ls='--')
-    ax[1, i].axvline(peak_loc, lw=1, color='k', ls='-.')
-    ax[1, i].axvline(0.5 * (75 + peak_loc), lw=1, color='k', ls='-')
+    ax[1, i].axvline(75/255, lw=1, color='k', ls='--')
+    ax[1, i].axvline(peak_loc/255, lw=1, color='k', ls='-.')
+    ax[1, i].axvline(0.5 * (75 + peak_loc)/255, lw=1, color='k', ls='-')
     
     ax[1, i].format(ylabel='', xlabel='Band 1 Reflectance')
 
