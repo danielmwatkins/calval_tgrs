@@ -15,7 +15,7 @@ Pkg.add(["IJulia",
         "FileIO",
         "StatsBase" 
         ])
-Pkg.update("IceFloeTracker")
+Pkg.update(; name="IceFloeTracker", rev="main")
 
 using IceFloeTracker
 using IJulia
