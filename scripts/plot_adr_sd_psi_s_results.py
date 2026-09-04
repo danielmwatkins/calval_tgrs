@@ -15,22 +15,27 @@ plot_range = (5.5, 13.5)
 df_aqua_props = []
 for file in os.listdir('../data/floe_property_tables/aqua/'):
     if 'csv' in file:
-        df_temp = pd.read_csv('../data/floe_property_tables/aqua/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp = pd.read_csv('../data/floe_property_tables/aqua/' + file).loc[:, ['label', 'cloud_fraction_ift']]
         df_temp['case'] = file.split('-')[0]
+        df_temp['region'] = file.split('-')[1]
+        df_temp['date'] = file.split('-')[2]
         df_aqua_props.append(df_temp)
 df_aqua_props = pd.concat(df_aqua_props)
 df_aqua_props['label'] = df_aqua_props['label'].astype(int)
-df_aqua_props.rename({'label': 'aqua_label', 'cloud_fraction': 'aqua_cloud_fraction'}, axis=1, inplace=True)
+df_aqua_props.rename({'label': 'aqua_label', 'cloud_fraction_ift': 'aqua_cloud_fraction'}, axis=1, inplace=True)
 
 df_terra_props = []
 for file in os.listdir('../data/floe_property_tables/terra/'):
     if 'csv' in file:
-        df_temp = pd.read_csv('../data/floe_property_tables/terra/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp = pd.read_csv('../data/floe_property_tables/terra/' + file).loc[:, ['label', 'cloud_fraction_ift']]
         df_temp['case'] = file.split('-')[0]
+        df_temp['case'] = file.split('-')[0]
+        df_temp['region'] = file.split('-')[1]
+        df_temp['date'] = file.split('-')[2]
         df_terra_props.append(df_temp)
 df_terra_props = pd.concat(df_terra_props)
 df_terra_props['label'] = df_terra_props['label'].astype(int)
-df_terra_props.rename({'label': 'terra_label', 'cloud_fraction': 'terra_cloud_fraction'}, axis=1, inplace=True)
+df_terra_props.rename({'label': 'terra_label', 'cloud_fraction_ift': 'terra_cloud_fraction'}, axis=1, inplace=True)
 
 # Get test/train index data
 df_testtrain = pd.read_csv('../data/validation_dataset_testtrain_split.csv').rename({'Unnamed: 0': 'case'}, axis=1)
@@ -44,7 +49,9 @@ for fname in os.listdir('../data/rotation_test/'):
     if '.csv' in fname:
         if 'aqua' in fname:
             df = pd.read_csv('../data/rotation_test/' + fname)
-            df['case'] = fname.split('-')[0].replace('.csv', '')
+            df['case'] = fname.split('-')[0]
+            df['region'] = fname.split('-')[1]
+            df['date'] = fname.split('-')[3]
             if len(df) > 0:
                 data.append(df)
 df_all = pd.concat(data).reset_index(drop=True)
@@ -59,14 +66,14 @@ comp_columns = ['area', 'convex_area', 'major_axis_length', 'minor_axis_length',
                 'adr_area', 'adr_convex_area', 'adr_major_axis_length',
                 'adr_minor_axis_length', 'normalized_shape_difference']
 
-df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'area', 'perimeter']].set_index('floe_id')
+df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'region', 'date', 'area', 'perimeter']].set_index('floe_id')
 df_max = df_all.groupby('floe_id').max()[comp_columns]
 df_max.columns = df_max.add_prefix('max_', axis=1).columns
 
 df_min = df_all[['floe_id', 'psi_s_correlation']].groupby('floe_id').min()
 df_min.columns = df_min.add_prefix('min_', axis=1).columns
 
-df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'area', 'L', 'convex_area', 'major_axis_length',
+df_init = df_all.loc[df_all.rotation==0, ['floe_id', 'case', 'region', 'date', 'area', 'L', 'convex_area', 'major_axis_length',
        'minor_axis_length']].set_index('floe_id')
 df_rotation = pd.merge(df_init, df_max, left_index=True, right_index=True).merge(df_min, left_index=True, right_index=True)
 df_rotation['L'] = np.sqrt(df_rotation['area'])

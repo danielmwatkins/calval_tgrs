@@ -11,22 +11,22 @@ plot_range = (5.5, 13.5)
 df_aqua_props = []
 for file in os.listdir('../data/floe_property_tables/aqua/'):
     if 'csv' in file:
-        df_temp = pd.read_csv('../data/floe_property_tables/aqua/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp = pd.read_csv('../data/floe_property_tables/aqua/' + file).loc[:, ['label', 'cloud_fraction_ift']]
         df_temp['case'] = file.split('-')[0]
         df_aqua_props.append(df_temp)
 df_aqua_props = pd.concat(df_aqua_props)
 df_aqua_props['label'] = df_aqua_props['label'].astype(int)
-df_aqua_props.rename({'label': 'aqua_label', 'cloud_fraction': 'aqua_cloud_fraction'}, axis=1, inplace=True)
+df_aqua_props.rename({'label': 'aqua_label', 'cloud_fraction_ift': 'aqua_cloud_fraction'}, axis=1, inplace=True)
 
 df_terra_props = []
 for file in os.listdir('../data/floe_property_tables/terra/'):
     if 'csv' in file:
-        df_temp = pd.read_csv('../data/floe_property_tables/terra/' + file).loc[:, ['label', 'cloud_fraction']]
+        df_temp = pd.read_csv('../data/floe_property_tables/terra/' + file).loc[:, ['label', 'cloud_fraction_ift']]
         df_temp['case'] = file.split('-')[0]
         df_terra_props.append(df_temp)
 df_terra_props = pd.concat(df_terra_props)
 df_terra_props['label'] = df_terra_props['label'].astype(int)
-df_terra_props.rename({'label': 'terra_label', 'cloud_fraction': 'terra_cloud_fraction'}, axis=1, inplace=True)
+df_terra_props.rename({'label': 'terra_label', 'cloud_fraction_ift': 'terra_cloud_fraction'}, axis=1, inplace=True)
 
 # Get test/train index data
 df_testtrain = pd.read_csv('../data/validation_dataset_testtrain_split.csv').rename({'Unnamed: 0': 'case'}, axis=1)
