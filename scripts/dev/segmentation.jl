@@ -1,4 +1,6 @@
 #### Functions in the FSPipeline, placed here for early access ####
+import OffsetArrays: no_offset_view
+
 
 function filter_floes(
     img_indexmap,
@@ -369,6 +371,8 @@ function dist_morph_split(
 
         labels = filter(r -> r != 0, unique(labeled_markers))
         indices = component_indices(labeled_markers)
+        bboxes = component_boxes(labeled_markers)
+        areas = component_lengths(labeled_markers)
         
         # check 1: Remove components with no intersection with the layer below
         remove_list = _nonoverlapping_labels(levels[dist_threshold - 1], indices, labels)
@@ -379,6 +383,21 @@ function dist_morph_split(
         maximum_depths = Dict(L => maximum(dist[indices[L]]) for L in labels)
         remove_list = [L for L ∈ labels if max_depth_ratio * maximum_depths[L] < dist_threshold]
         _remove_labels!(labeled_markers, indices, remove_list)
+
+        # Component-wise fill holes: Use the clear-boundary tool to fill only interiors
+        # Update labels list
+        # labels = filter(r -> r != 0, unique(labeled_markers))
+        # for L in labels
+        #     n, m = size(labeled_markers[bboxes[L]])
+        #     cropped_padded = no_offset_view(padarray(labeled_markers[bboxes[L]] .== L, Fill(0, (1, 1), (1, 1))) .+ 1)
+        #     new_mask =  clearborder(cropped_padded)[2:n+1, 2:m+1]
+        #     if sum(new_mask) > areas[L]
+        #         cropped = labeled_markers[bboxes[L]] # may contain other labels!
+        #         cropped[new_mask .> 0] .= L
+        #         labeled_markers[bboxes[L]] .= cropped
+        #     end
+        # end
+            
         levels[dist_threshold] = labeled_markers
     end
     max_depth = maximum([d for d in keys(levels)])
