@@ -5,17 +5,18 @@ import OffsetArrays: no_offset_view
 function filter_floes(
     img_indexmap,
     coastal_buffer_mask,
-    cloud_mask,
+    classified_image,
     falsecolor_image;
-    min_floe_size=100,
+    min_floe_size=50,
     max_floe_size=90_000,
     boundary_radius=15,
-    min_reflectance=0.4,
-    min_circularity=0.3,
-    min_solidity=0.7,
-    min_contrast=0.01,
+    classification_key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3),
+    # min_reflectance=0.4,
+    # min_circularity=0.3,
+    # min_solidity=0.7,
+    # min_contrast=0.01,
     filter_function=LogisticRegressionFilter,
-    min_probability=0.5,
+    # min_probability=0.5,
 )
     # 1. Remove objects which overlap the coastal mask
     overlap = unique(img_indexmap[coastal_buffer_mask])
@@ -32,21 +33,30 @@ function filter_floes(
 
     # 3. Get object-wise properties
     results_df = regionprops_table(img_indexmap;
-        properties=[:label, :area, :perimeter, :bbox, :centroid, :convex_area,
-                    :major_axis_length, :minor_axis_length, :orientation],
+        properties=[:label, :area, :perimeter, :bbox,
+                    :centroid, :convex_area, :major_axis_length,
+                    :minor_axis_length, :orientation,
+                    :circularity, :solidity],
         convex_area_algorithm=PolygonConvexArea()
     )
     # Return blank image if no floes remain
     nrow(results_df) == 0 && return results_df
 
     results_df[:, :length_scale] = results_df[:, :area] .^ 0.5
+    # temp: fix circularity computation
     results_df[:, :circularity] = 4 * π * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
-    subset!(results_df, :circularity => r -> r .> min_circularity)
-    results_df[:, :solidity] = results_df[:, :area] ./ results_df[:, :convex_area]
-    subset!(results_df, :solidity => r -> r .> min_solidity)
     nrow(results_df) == 0 && return results_df
-
+    
+    cloud_mask = classified_image .= classification_key["cloud"]
     results_df[:, :cloud_fraction] =  (r -> mean(cloud_mask[indices[r]])).(results_df[:, :label])
+    
+    ice_mask = classified_image .= classification_key["ice"]
+    results_df[:, :ice_fraction] =  (r -> mean(ice_mask[indices[r]])).(results_df[:, :label])
+
+    water_mask = classified_image .= classification_key["water"]
+    results_df[:, :water_fraction] =  (r -> mean(water_mask[indices[r]])).(results_df[:, :label])
+    
+
     
     # mean reflectance
     segment_mean_reflectance = segment_mean(SegmentedImage(falsecolor_image, img_indexmap))
@@ -55,12 +65,13 @@ function filter_floes(
     results_df[:, :b7_reflectance_mean] = red.(b)
     results_df[:, :b2_reflectance_mean] = green.(b)
     
-    subset!(results_df, :b1_reflectance_mean => r -> r .> min_reflectance)
-    nrow(results_df) == 0 && return results_df
+    # subset!(results_df, :b1_reflectance_mean => r -> r .> min_reflectance)
+    # nrow(results_df) == 0 && return results_df
     
-    # mean boundary reflectance
+    # mean Band 1 boundary reflectance
     b1 = blue.(falsecolor_image)
-    bdry_indexmap = expand_labels(img_indexmap, boundary_radius) .- img_indexmap
+    eroded_labels = img_indexmap .* erode(img_indexmap .> 0)
+    bdry_indexmap = expand_labels(img_indexmap, boundary_radius) .- eroded_labels
     bdry_indices = component_indices(bdry_indexmap)
     bdry_labels = intersect(results_df[:, :label], unique(bdry_indexmap))
     b1_bdry_means = Dict(L => mean(b1[bdry_indices[L]]) for L in bdry_labels)
@@ -71,12 +82,11 @@ function filter_floes(
     end
     results_df[:, :b1_reflectance_bdry_mean] = [b1_bdry_means[L] for L in results_df[:, :label]]
     results_df[:, :b1_bdry_contrast] = results_df[:, :b1_reflectance_mean] .- results_df[:, :b1_reflectance_bdry_mean]
-    subset!(results_df, :b1_bdry_contrast => r -> r .> min_contrast)
+    # subset!(results_df, :b1_bdry_contrast => r -> r .> min_contrast)
     nrow(results_df) == 0 && return results_df
-
+    
     results_df[:, :probability] .= filter_function(results_df)
-    subset!(results_df, :probability => r -> r .> min_probability)
-
+    # subset!(results_df, :probability => r -> r .> min_probability)
     return results_df
 end
 
@@ -359,8 +369,11 @@ function dist_morph_split(
     opening_strel=strel_disk(3),
 )
     dist = distance_transform(feature_transform(.!binary_floes))
+    markers = opening(dist .> 0, opening_strel)
+    labeled_markers = .!imfill(.!markers, (0, max_hole_fill)) |> label_components
+    
     # Initialize with one run of opening
-    levels = Dict(0 => label_components(opening(dist .> 0, opening_strel)))
+    levels = Dict(0 => labeled_markers)
 
     ### Build pyramid - each size is the opened and filled thresholded image for a given distance
     for dist_threshold in 1:max_depth
@@ -383,20 +396,6 @@ function dist_morph_split(
         maximum_depths = Dict(L => maximum(dist[indices[L]]) for L in labels)
         remove_list = [L for L ∈ labels if max_depth_ratio * maximum_depths[L] < dist_threshold]
         _remove_labels!(labeled_markers, indices, remove_list)
-
-        # Component-wise fill holes: Use the clear-boundary tool to fill only interiors
-        # Update labels list
-        # labels = filter(r -> r != 0, unique(labeled_markers))
-        # for L in labels
-        #     n, m = size(labeled_markers[bboxes[L]])
-        #     cropped_padded = no_offset_view(padarray(labeled_markers[bboxes[L]] .== L, Fill(0, (1, 1), (1, 1))) .+ 1)
-        #     new_mask =  clearborder(cropped_padded)[2:n+1, 2:m+1]
-        #     if sum(new_mask) > areas[L]
-        #         cropped = labeled_markers[bboxes[L]] # may contain other labels!
-        #         cropped[new_mask .> 0] .= L
-        #         labeled_markers[bboxes[L]] .= cropped
-        #     end
-        # end
             
         levels[dist_threshold] = labeled_markers
     end
@@ -425,6 +424,7 @@ function dist_morph_split(
     end
     return label_components(final_labels)
 end
+
 """
 Helper functions for the merge_floes routine
 """
