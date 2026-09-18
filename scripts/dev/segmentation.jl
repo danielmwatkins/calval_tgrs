@@ -2,68 +2,51 @@
 import OffsetArrays: no_offset_view
 
 
-function filter_floes(
+function extended_regionprops(
     img_indexmap,
     coastal_buffer_mask,
     classified_image,
-    falsecolor_image;
-    min_floe_size=50,
-    max_floe_size=90_000,
+    falsecolor_image; # expects band 7-2-1
     boundary_radius=15,
     classification_key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3),
-    # min_reflectance=0.4,
-    # min_circularity=0.3,
-    # min_solidity=0.7,
-    # min_contrast=0.01,
-    filter_function=LogisticRegressionFilter,
-    # min_probability=0.5,
+    properties = [
+        :label, :area, :perimeter, :bbox,
+        :centroid, :convex_area, :major_axis_length,
+        :minor_axis_length, :orientation,
+        :circularity, :solidity],
+    probability_function=LogisticRegressionFilter,
 )
-    # 1. Remove objects which overlap the coastal mask
-    overlap = unique(img_indexmap[coastal_buffer_mask])
+    img_indexmap = copy(img_indexmap)
     indices = component_indices(img_indexmap)
-    for L in overlap
-        img_indexmap[indices[L]] .= 0
-    end
 
-    # 2. Remove objects outside the specified size bounds prior to extracting features.
-    # This is important since the small features can cause problems in some feature
-    # descriptors.
-    remove_small_segments!(img_indexmap, min_floe_size)
-    remove_large_segments!(img_indexmap, max_floe_size)
-
-    # 3. Get object-wise properties
     results_df = regionprops_table(img_indexmap;
-        properties=[:label, :area, :perimeter, :bbox,
-                    :centroid, :convex_area, :major_axis_length,
-                    :minor_axis_length, :orientation,
-                    :circularity, :solidity],
+        properties=properties,
         convex_area_algorithm=PolygonConvexArea()
     )
     # Return blank image if no floes remain
     nrow(results_df) == 0 && return results_df
 
     results_df[:, :length_scale] = results_df[:, :area] .^ 0.5
-    # temp: fix circularity computation
-    results_df[:, :circularity] = 4 * π * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
-    nrow(results_df) == 0 && return results_df
+    # Correct circularity error
+    results_df[:, :circularity] = 4 * pi * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
     
-    cloud_mask = classified_image .= classification_key["cloud"]
-    results_df[:, :cloud_fraction] =  (r -> mean(cloud_mask[indices[r]])).(results_df[:, :label])
+    mask_mean(r, mask) = mean(mask[indices[r]])
+    masks = Dict(k => classified_image .== classification_key[k] for k in keys(classification_key))
+    push!(masks, "coast" => coastal_buffer_mask)
     
-    ice_mask = classified_image .= classification_key["ice"]
-    results_df[:, :ice_fraction] =  (r -> mean(ice_mask[indices[r]])).(results_df[:, :label])
-
-    water_mask = classified_image .= classification_key["water"]
-    results_df[:, :water_fraction] =  (r -> mean(water_mask[indices[r]])).(results_df[:, :label])
-    
-
+    results_df[:, :cloud_fraction] =  mask_mean.(results_df[:, :label], [masks["cloud"]])
+    results_df[:, :ice_fraction] =  mask_mean.(results_df[:, :label], [masks["ice"]])
+    results_df[:, :water_fraction] =  mask_mean.(results_df[:, :label], [masks["water"]])
+    results_df[:, :coastal_buffer_fraction] =  mask_mean.(results_df[:, :label], [masks["coast"]])
     
     # mean reflectance
-    segment_mean_reflectance = segment_mean(SegmentedImage(falsecolor_image, img_indexmap))
-    b = [segment_mean_reflectance[L] for L in  results_df[:, :label]]
+    segment_mean_reflectance = Dict(r => mean(falsecolor_image[indices[r]]) for r in keys(indices))
+    b = (r -> segment_mean_reflectance[r]).(results_df[:, :label])
     results_df[:, :b1_reflectance_mean] = blue.(b)
     results_df[:, :b7_reflectance_mean] = red.(b)
     results_df[:, :b2_reflectance_mean] = green.(b)
+
+    # boundary mean reflectance
     
     # subset!(results_df, :b1_reflectance_mean => r -> r .> min_reflectance)
     # nrow(results_df) == 0 && return results_df
@@ -82,11 +65,8 @@ function filter_floes(
     end
     results_df[:, :b1_reflectance_bdry_mean] = [b1_bdry_means[L] for L in results_df[:, :label]]
     results_df[:, :b1_bdry_contrast] = results_df[:, :b1_reflectance_mean] .- results_df[:, :b1_reflectance_bdry_mean]
-    # subset!(results_df, :b1_bdry_contrast => r -> r .> min_contrast)
-    nrow(results_df) == 0 && return results_df
     
-    results_df[:, :probability] .= filter_function(results_df)
-    # subset!(results_df, :probability => r -> r .> min_probability)
+    results_df[:, :probability] .= probability_function(results_df)
     return results_df
 end
 
@@ -461,41 +441,90 @@ color_map=Dict(
     return n0f8.(map(i -> color_map[i], labeled_image))
 end
 
-"""
 
-Produces a segmented image with up to 4 categories: land, water, ice, and cloud.
+abstract type IceFloePreprocessingAlgorithm end
+abstract type IceFloeClassificationAlgorithm end
 
 """
-function ift_classification(false_color_image, land_mask;
-        tau_1=0.1,
-        tau_2=0.2,
-        tau_7=0.2,
-        label_map=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+   Preprocess(
+        adapthisteq_params = (nbins=256, rblocks=8, cblocks=8, clip=1)
     )
-    
-    cloud_mask_algorithm=Watkins2026CloudMask(
-        band_7_threshold = tau_7,
-        band_2_threshold = tau_2,
-        opening_strel = strel_disk(3),
-        dilation_strel = strel_disk(2),
-        min_hole_size = 300,
-        max_fill_size = 1e4,
-        min_contrast = 0.2,
-        ) 
+    Preprocess()(img, mask)
 
-    ice_mask_algorithm=IceDetectionBrightnessMidpoint(minimum_reflectance=tau_1)
+    Converts input image to grayscale, then preprocesses by applying contrast limited adaptive histogram
+    equalization. The mask may include the land mask, coastal buffer, or a domain
+
+"""
+@kwdef struct Preprocess <: IceFloePreprocessingAlgorithm
+    histogram_algorithm = ContrastLimitedAdaptiveHistogramEqualization
+    histogram_params = (nbins=256, rblocks=4, cblocks=4, clip=1)
+end
+
+function (p::Preprocess)(
+    image::AbstractArray{<:Union{AbstractGray, TransparentGray, AbstractRGB,TransparentRGB}}, landmask
+)
+    # Cast to grayscale first to save compute time
+    proc_img = Gray.(image)
+    apply_landmask!(proc_img, landmask)
+
+    adjust_histogram!(
+        proc_img,
+        p.histogram_algorithm(;
+            p.histogram_params...
+        ),
+    )
+
+    # Re-apply mask so histogram adjustment doesn't bleed into land
+    apply_landmask!(proc_img, landmask)
+    return proc_img
+end
+
+"""
+   Classify(
+        τ₁=0.1,
+        τ₂=0.2,
+        τ₇=0.2,
+        key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+    )
+    Classify()(false_color_image, mask)
+
+Classifies an image into land, water, ice, and cloud using the Watkins2026 cloud mask
+and the IceDetectionBrightnessMidpoint algorithm. The parameter τ₁ is the brightness 
+minimum for the ice detection algorithm, while the τ₂ and τ₇ parameters are used in the 
+cloud mask algorithm. The `key` specifies the integers used to encode the classification
+for the returned label map.
+
+"""
+@kwdef struct Classify <: IceFloeClassificationAlgorithm
+        τ₁=0.1
+        τ₂=0.2
+        τ₇=0.2
+        key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+end
+
+function (c::IceFloeClassificationAlgorithm)(false_color_image, land_mask)::Matrix{Int64}
+    cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=c.τ₂, band_7_threshold=c.τ₇)
+    ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=c.τ₁)
+    fc_masked = apply_landmask(false_color_image, land_mask)
+    clouds = cloud_mask_algorithm(fc_masked)
+    ice = Gray.(blue.(apply_landmask(fc_masked, clouds))) |> ice_mask_algorithm
     
-    coastal_buffer = create_coastal_buffer_mask(land_mask .> 0, strel_disk(5))
-    fc_masked = apply_landmask(false_color_image, coastal_buffer)
-    clouds = cloud_mask_algorithm(fc_masked) .> 0
-    band_1_masked = Gray.(blue.(apply_landmask(fc_masked, clouds)))
-    ice = ice_mask_algorithm(band_1_masked) .> 0
-    
-    classified_image = ones(Int64, size(false_color_image)) .* label_map["water"]
-    classified_image[coastal_buffer] .= label_map["land"]
-    classified_image[ice] .= label_map["ice"]
-    classified_image[clouds] .= label_map["cloud"]
+    classified_image = ones(Int64, size(false_color_image)) .* c.key["water"]
+    classified_image[land_mask .> 0] .= c.key["land"]
+    classified_image[ice .> 0] .= c.key["ice"]
+    classified_image[clouds .> 0] .= c.key["cloud"]
     
     return classified_image
+end
+
+function colorize_classification(labeled_image;
+    color_map=Dict(
+        0=>RGB(0),
+        1=>RGB(0.018, 0.49, 0.64),
+        2=>RGB(1),
+        3=>RGB(0.84, 0.73, 0.94)
+        )
+    )
+    return n0f8.(map(i -> color_map[i], labeled_image))
 end
 
