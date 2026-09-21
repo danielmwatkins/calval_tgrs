@@ -1,13 +1,28 @@
 # calval_tgrs
-Calibration and validation code for the IFT TGRS manuscript. 
+Calibration and validation code for the IFT TGRS manuscript "IceFloeTracker.jl: Detection and tracking of sea ice floes from moderate resolution optical imagery".
+
+The manuscript describes an updated, open-source framework based on the Lopez-Acosta 2019 Ice Floe Tracker paper, a new validation dataset consisting of images sampled from pan-Arctic marginal ice zones, and the results of calibration and validation against the sampled dataset. After presenting the calibration and validation, we demonstrate the method on large-scale images from each region.
+
+## comparison with the LA2019 framework
+| Section | LA2019 | TGRS2026 |
+| --- | --- | --- |
+| Test regions | Fram Strait (in paper), Beaufort Gyre (thesis) | Pan-Arctic sample |
+| Cloud mask | Set brightest clouds to 0, unmask possible ice | Stricter cloud mask, separate classification and segmentation |
+| Preprocessing | Histogram equalization and unsharp mask (paper describes color, thesis code was grayscale), nonlinear diffusion (thesis) | Histogram equalizaton of grayscale image |
+| Ice-water discrimination | Contrast adjustment of grayscale image | Explicit assignment to ice and water categories |
+| Binarization | 4-color k-means, cluster with Band 7 ~ 0 and Band 1 ~ 1 selected | k-means method conditioned on cloud cover |
+| Floe separation | Watershed transformation, second application of k-means, morphology | Morphological splitting and object-based merging |
+| Tracking | Geometric feature pairing, 2-category stepwise thresholds | Geometric feature pairing, continuous thresholds, multi-feature weight minimization |
+
+
+Additional comparison with the previous version: 20.04.2017–05.06.2017, 250 km by 400 km, Fram Strait.
 
 ## setup
-- Set up the Python environment using  
+- Initialize the Python environment using  
   ```conda env create -f calval.yml```
-- Set up the Julia environment using  
+- Initialize the Julia environment using  
   ```julia scripts/julia_setup.jl```
-- Clone the ice floe validation dataset
-  ```git clone https://github.com/danielmwatkins/ice-floe-validation-dataset.git```
+- Clone the ice floe validation dataset repository
 
 ## workflow
 ### ice floe validation dataset
