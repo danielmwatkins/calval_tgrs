@@ -1,64 +1,53 @@
 #### Functions in the FSPipeline, placed here for early access ####
+import OffsetArrays: no_offset_view
 
-function filter_floes(
+function extended_regionprops(
     img_indexmap,
-    coastal_buffer_mask,
-    cloud_mask,
-    falsecolor_image;
-    min_floe_size=100,
-    max_floe_size=90_000,
+    falsecolor_image,
+    masks;
     boundary_radius=15,
-    min_reflectance=0.4,
-    min_circularity=0.3,
-    min_solidity=0.7,
-    min_contrast=0.01,
-    filter_function=LogisticRegressionFilter,
-    min_probability=0.5,
+    properties = [
+        :label, :area, :perimeter, :bbox,
+        :centroid, :convex_area, :major_axis_length,
+        :minor_axis_length, :orientation,
+        :circularity, :solidity],
+    probability_function=LogisticRegressionFilter,
 )
-    # 1. Remove objects which overlap the coastal mask
-    overlap = unique(img_indexmap[coastal_buffer_mask])
+    img_indexmap = copy(img_indexmap)
     indices = component_indices(img_indexmap)
-    for L in overlap
-        img_indexmap[indices[L]] .= 0
-    end
 
-    # 2. Remove objects outside the specified size bounds prior to extracting features.
-    # This is important since the small features can cause problems in some feature
-    # descriptors.
-    remove_small_segments!(img_indexmap, min_floe_size)
-    remove_large_segments!(img_indexmap, max_floe_size)
-
-    # 3. Get object-wise properties
     results_df = regionprops_table(img_indexmap;
-        properties=[:label, :area, :perimeter, :bbox, :centroid, :convex_area,
-                    :major_axis_length, :minor_axis_length, :orientation],
+        properties=properties,
         convex_area_algorithm=PolygonConvexArea()
     )
     # Return blank image if no floes remain
     nrow(results_df) == 0 && return results_df
 
     results_df[:, :length_scale] = results_df[:, :area] .^ 0.5
-    results_df[:, :circularity] = 4 * π * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
-    subset!(results_df, :circularity => r -> r .> min_circularity)
-    results_df[:, :solidity] = results_df[:, :area] ./ results_df[:, :convex_area]
-    subset!(results_df, :solidity => r -> r .> min_solidity)
-    nrow(results_df) == 0 && return results_df
-
-    results_df[:, :cloud_fraction] =  (r -> mean(cloud_mask[indices[r]])).(results_df[:, :label])
+    # Correct circularity error
+    results_df[:, :circularity] = 4 * pi * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
+    
+    mask_mean(r, mask) = mean(mask[indices[r]])
+    for k in keys(masks)
+        results_df[:, Symbol(k, "_fraction")] =  mask_mean.(results_df[:, :label], [masks[k]])
+    end
     
     # mean reflectance
-    segment_mean_reflectance = segment_mean(SegmentedImage(falsecolor_image, img_indexmap))
-    b = [segment_mean_reflectance[L] for L in  results_df[:, :label]]
+    segment_mean_reflectance = Dict(r => mean(falsecolor_image[indices[r]]) for r in keys(indices))
+    b = (r -> segment_mean_reflectance[r]).(results_df[:, :label])
     results_df[:, :b1_reflectance_mean] = blue.(b)
     results_df[:, :b7_reflectance_mean] = red.(b)
     results_df[:, :b2_reflectance_mean] = green.(b)
+
+    # boundary mean reflectance
     
-    subset!(results_df, :b1_reflectance_mean => r -> r .> min_reflectance)
-    nrow(results_df) == 0 && return results_df
+    # subset!(results_df, :b1_reflectance_mean => r -> r .> min_reflectance)
+    # nrow(results_df) == 0 && return results_df
     
-    # mean boundary reflectance
+    # mean Band 1 boundary reflectance
     b1 = blue.(falsecolor_image)
-    bdry_indexmap = expand_labels(img_indexmap, boundary_radius) .- img_indexmap
+    eroded_labels = img_indexmap .* erode(img_indexmap .> 0)
+    bdry_indexmap = expand_labels(img_indexmap, boundary_radius) .- eroded_labels
     bdry_indices = component_indices(bdry_indexmap)
     bdry_labels = intersect(results_df[:, :label], unique(bdry_indexmap))
     b1_bdry_means = Dict(L => mean(b1[bdry_indices[L]]) for L in bdry_labels)
@@ -69,12 +58,8 @@ function filter_floes(
     end
     results_df[:, :b1_reflectance_bdry_mean] = [b1_bdry_means[L] for L in results_df[:, :label]]
     results_df[:, :b1_bdry_contrast] = results_df[:, :b1_reflectance_mean] .- results_df[:, :b1_reflectance_bdry_mean]
-    subset!(results_df, :b1_bdry_contrast => r -> r .> min_contrast)
-    nrow(results_df) == 0 && return results_df
-
-    results_df[:, :probability] .= filter_function(results_df)
-    subset!(results_df, :probability => r -> r .> min_probability)
-
+    
+    results_df[:, :probability] .= probability_function(results_df)
     return results_df
 end
 
@@ -102,6 +87,77 @@ function fill_missing!(cases; template=Gray.(zeros(Bool, (400, 400))))
         end
     end
 end
+
+"""
+
+naming - 
+- merge labels could mean joining two segments
+
+"""
+function merge_floes(labeled_imgs, falsecolor_image, masks;
+    max_distance_pixels=5,
+    max_error_area=0.2
+    )
+    n = length(labeled_imgs)
+    (n == 1) && return(labeled_imgs)
+
+    # Initialize with the first image
+    init_img = copy(labeled_imgs[1])
+    for i in 2:n
+        comp_img = copy(labeled_imgs[i])
+        df1 = extended_regionprops(init_img)
+        df2 = extended_regionprops(comp_img)
+
+        df_comp = objectwise_compare_segmentation(df1, df2, labels1, labels2);
+
+        # Merge criteria 1: Refining similar segments
+        within_tolerance(d, e) = (d .< max_distance_pixels) .&& (e .< max_error_area)
+        df_matches = subset(df_comp, [:dist_s1_s2, :scaled_relative_error_area] => within_tolerance)
+        merge_arrays!(init_img, comp_img, df_matches; metric_variable=:probability)
+
+        # Merge criteria 2: refining 
+        df_matches = subset(
+    end
+end
+
+"""
+    merge_arrays!(labels1, labels2, comparison_dataframe)
+
+Overwrite labels1 using segments from labels2 if 
+"""
+function merge_arrays!(labels1, labels2, comparison_dataframe; metric_variable=:probability)    
+    nrow(comparison_dataframe) > 0 && begin
+        
+        # Don't destroy the comparisons
+        df_ = copy(comparison_dataframe)
+        
+        # Select the item in the relative set with lowest area difference.
+        subset!(
+            groupby(df_, :s1_label),
+            :scaled_relative_error_area => r -> 1:length(r) .== argmin(r),
+        )
+        subset!(
+            groupby(df_, :s2_label),
+            :scaled_relative_error_area => r -> 1:length(r) .== argmin(r),
+        )
+    
+        # Select the option with highest probability
+        transform!(
+            df_,
+            [Symbol("s1_", metric_variable),
+             Symbol("s2_", metric_variable)] =>
+                ByRow((s1, s2) -> s1 .> s2) => :s1_better,
+        )
+
+        indices1 = component_indices(labels1)
+        indices2 = component_indices(labels2)
+        
+        _remove_labels!(labels1, indices1, df_[.!df_.s1_better, :s1_label])
+        _assign_labels!(labels1, indices2, df_[.!df_.s1_better, :s2_label]; 
+            offset=maximum(labels1))
+    end
+end
+
 
 function merge_floes(df1, df2, labels1, labels2; 
     max_distance_pixels=10,
@@ -348,64 +404,72 @@ function objectwise_compare_segmentation(
     return results_df
 end
 
-function dist_morph_split(
-    binary_floes::BitMatrix;
-    max_hole_fill::Int64=2000,
-    max_depth::Int64=5,
-    max_depth_ratio::Real=0.3,
-    max_expand::Int64=3,
-    opening_strel=strel_disk(3),
-)
-    dist = distance_transform(feature_transform(.!binary_floes))
-    # Initialize with one run of opening
-    levels = Dict(0 => label_components(opening(dist .> 0, opening_strel)))
+#### Check: is this different than the IFT version?
+# function dist_morph_split(
+#     binary_floes::BitMatrix;
+#     max_hole_fill::Int64=2000,
+#     max_depth::Int64=5,
+#     max_depth_ratio::Real=0.3,
+#     max_expand::Int64=3,
+#     opening_strel=strel_disk(3),
+# )
+#     dist = distance_transform(feature_transform(.!binary_floes))
+#     markers = opening(dist .> 0, opening_strel)
+#     labeled_markers = .!imfill(.!markers, (0, max_hole_fill)) |> label_components
+    
+#     # Initialize with one run of opening
+#     levels = Dict(0 => labeled_markers)
 
-    ### Build pyramid - each size is the opened and filled thresholded image for a given distance
-    for dist_threshold in 1:max_depth
-        markers = opening(dist .> dist_threshold, opening_strel)
-        markers .= .!imfill(.!markers, (0, max_hole_fill))
-        labeled_markers = label_components(markers)
-        maximum(labeled_markers) == 0 && break
+#     ### Build pyramid - each size is the opened and filled thresholded image for a given distance
+#     for dist_threshold in 1:max_depth
+#         markers = opening(dist .> dist_threshold, opening_strel)
+#         markers .= .!imfill(.!markers, (0, max_hole_fill))
+#         labeled_markers = label_components(markers)
+#         maximum(labeled_markers) == 0 && break
 
-        labels = filter(r -> r != 0, unique(labeled_markers))
-        indices = component_indices(labeled_markers)
+#         labels = filter(r -> r != 0, unique(labeled_markers))
+#         indices = component_indices(labeled_markers)
+#         bboxes = component_boxes(labeled_markers)
+#         areas = component_lengths(labeled_markers)
         
-        # check 1: Remove components with no intersection with the layer below
-        remove_list = _nonoverlapping_labels(levels[dist_threshold - 1], indices, labels)
-        _remove_labels!(labeled_markers, indices, remove_list)
-        filter!(r -> r ∉ remove_list, labels)
+#         # check 1: Remove components with no intersection with the layer below
+#         remove_list = _nonoverlapping_labels(levels[dist_threshold - 1], indices, labels)
+#         _remove_labels!(labeled_markers, indices, remove_list)
+#         filter!(r -> r ∉ remove_list, labels)
 
-        # check 2: Remove components which fail the max_depth_ratio to component maximum depth test
-        maximum_depths = Dict(L => maximum(dist[indices[L]]) for L in labels)
-        remove_list = [L for L ∈ labels if max_depth_ratio * maximum_depths[L] < dist_threshold]
-        _remove_labels!(labeled_markers, indices, remove_list)
-        levels[dist_threshold] = labeled_markers
-    end
-    max_depth = maximum([d for d in keys(levels)])
-    final_labels = copy(levels[max_depth])
+#         # check 2: Remove components which fail the max_depth_ratio to component maximum depth test
+#         maximum_depths = Dict(L => maximum(dist[indices[L]]) for L in labels)
+#         remove_list = [L for L ∈ labels if max_depth_ratio * maximum_depths[L] < dist_threshold]
+#         _remove_labels!(labeled_markers, indices, remove_list)
+            
+#         levels[dist_threshold] = labeled_markers
+#     end
+#     max_depth = maximum([d for d in keys(levels)])
+#     final_labels = copy(levels[max_depth])
 
-    ### Descend pyramid
-    for dist_threshold in max_depth:-1:1
-        # Get indices from level d-1
-        indices = component_indices(levels[dist_threshold - 1])
-        labels = filter(r -> r != 0, unique(levels[dist_threshold - 1]))
-        # Expand indices at level d
-        expanded = expand_labels(levels[dist_threshold], max_expand)
-        for L in labels
-            matched_labels = unique(levels[dist_threshold][indices[L]])
-            # If intersection of the label at level
-            if (0 ∈ matched_labels) && (length(matched_labels) <= 2)
-                final_labels[indices[L]] .= L
-                continue
-            end
-            # Otherwise, expand the current level, and set the next level down to the expanded indices.
-            # May need to check the number of matched labels in the expanded image.
-            levels[dist_threshold - 1][indices[L]] .= expanded[indices[L]]
-            final_labels[indices[L]] .= expanded[indices[L]]
-        end
-    end
-    return label_components(final_labels)
-end
+#     ### Descend pyramid
+#     for dist_threshold in max_depth:-1:1
+#         # Get indices from level d-1
+#         indices = component_indices(levels[dist_threshold - 1])
+#         labels = filter(r -> r != 0, unique(levels[dist_threshold - 1]))
+#         # Expand indices at level d
+#         expanded = expand_labels(levels[dist_threshold], max_expand)
+#         for L in labels
+#             matched_labels = unique(levels[dist_threshold][indices[L]])
+#             # If intersection of the label at level
+#             if (0 ∈ matched_labels) && (length(matched_labels) <= 2)
+#                 final_labels[indices[L]] .= L
+#                 continue
+#             end
+#             # Otherwise, expand the current level, and set the next level down to the expanded indices.
+#             # May need to check the number of matched labels in the expanded image.
+#             levels[dist_threshold - 1][indices[L]] .= expanded[indices[L]]
+#             final_labels[indices[L]] .= expanded[indices[L]]
+#         end
+#     end
+#     return label_components(final_labels)
+# end
+
 """
 Helper functions for the merge_floes routine
 """
@@ -430,4 +494,102 @@ function _remove_labels!(output, indices, remove_labels)
     end
 end
 
+
+function colorize_classification(labeled_image;
+color_map=Dict(
+        0=>RGB(0),
+        1=>RGB(0.018, 0.49, 0.64),
+        2=>RGB(1),
+        3=>RGB(0.84, 0.73, 0.94)
+        )
+    )
+    return n0f8.(map(i -> color_map[i], labeled_image))
+end
+
+
+abstract type IceFloePreprocessingAlgorithm end
+abstract type IceFloeClassificationAlgorithm end
+
+"""
+   Preprocess(
+        adapthisteq_params = (nbins=256, rblocks=8, cblocks=8, clip=1)
+    )
+    Preprocess()(img, mask)
+
+    Converts input image to grayscale, then preprocesses by applying contrast limited adaptive histogram
+    equalization. The mask may include the land mask, coastal buffer, or a domain
+
+"""
+@kwdef struct Preprocess <: IceFloePreprocessingAlgorithm
+    histogram_algorithm = ContrastLimitedAdaptiveHistogramEqualization
+    histogram_params = (nbins=256, rblocks=4, cblocks=4, clip=1)
+end
+
+function (p::Preprocess)(
+    image::AbstractArray{<:Union{AbstractGray, TransparentGray, AbstractRGB,TransparentRGB}}, landmask
+)
+    # Cast to grayscale first to save compute time
+    proc_img = Gray.(image)
+    apply_landmask!(proc_img, landmask)
+
+    adjust_histogram!(
+        proc_img,
+        p.histogram_algorithm(;
+            p.histogram_params...
+        ),
+    )
+
+    # Re-apply mask so histogram adjustment doesn't bleed into land
+    apply_landmask!(proc_img, landmask)
+    return proc_img
+end
+
+"""
+   Classify(
+        τ₁=0.1,
+        τ₂=0.2,
+        τ₇=0.2,
+        key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+    )
+    Classify()(false_color_image, mask)
+
+Classifies an image into land, water, ice, and cloud using the Watkins2026 cloud mask
+and the IceDetectionBrightnessMidpoint algorithm. The parameter τ₁ is the brightness 
+minimum for the ice detection algorithm, while the τ₂ and τ₇ parameters are used in the 
+cloud mask algorithm. The `key` specifies the integers used to encode the classification
+for the returned label map.
+
+"""
+@kwdef struct Classify <: IceFloeClassificationAlgorithm
+        τ₁=0.1
+        τ₂=0.2
+        τ₇=0.2
+        key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+end
+
+function (c::IceFloeClassificationAlgorithm)(false_color_image, land_mask)::Matrix{Int64}
+    cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=c.τ₂, band_7_threshold=c.τ₇)
+    ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=c.τ₁)
+    fc_masked = apply_landmask(false_color_image, land_mask)
+    clouds = cloud_mask_algorithm(fc_masked)
+    ice = Gray.(blue.(apply_landmask(fc_masked, clouds))) |> ice_mask_algorithm
+    
+    classified_image = ones(Int64, size(false_color_image)) .* c.key["water"]
+    classified_image[land_mask .> 0] .= c.key["land"]
+    classified_image[ice .> 0] .= c.key["ice"]
+    classified_image[clouds .> 0] .= c.key["cloud"]
+    
+    return classified_image
+end
+
+function colorize_classification(labeled_image;
+    color_map=Dict(
+        0=>RGB(0),
+        1=>RGB(0.018, 0.49, 0.64),
+        2=>RGB(1),
+        3=>RGB(0.84, 0.73, 0.94)
+        )
+    )
+    return n0f8.(map(i -> color_map[i], labeled_image))
+end
 

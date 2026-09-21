@@ -9,6 +9,17 @@ dataset = Watkins2026Dataset(ref="main")
 fc_imgs = modis_falsecolor.(dataset)
 land_masks = modis_landmask.(dataset) .|> r -> Gray.(r) .> 0
 
+function _colorize_classification(labeled_image;
+color_map=Dict(
+        0=>RGB(0),
+        1=>RGB(0.018, 0.49, 0.64),
+        2=>RGB(1),
+        3=>RGB(0.84, 0.73, 0.94)
+        )
+    )
+    return map(i -> color_map[i], labeled_image)
+end
+
 """
 
 Produces a segmented image with up to 4 categories: land, water, ice, and cloud.
@@ -33,7 +44,7 @@ function ift_classification(false_color_image, land_mask;
 
     ice_mask_algorithm=IceDetectionBrightnessMidpoint(minimum_reflectance=tau_1)
     
-    coastal_buffer = create_coastal_buffer_mask(land_mask .> 0, strel_disk(25))
+    coastal_buffer = create_coastal_buffer_mask(land_mask .> 0, strel_disk(5))
     fc_masked = apply_landmask(false_color_image, coastal_buffer)
     clouds = cloud_mask_algorithm(fc_masked) .> 0
     band_1_masked = Gray.(blue.(apply_landmask(fc_masked, clouds)))
@@ -44,12 +55,11 @@ function ift_classification(false_color_image, land_mask;
     classified_image[ice] .= label_map["ice"]
     classified_image[clouds] .= label_map["cloud"]
     
-    return SegmentedImage(false_color_image, classified_image)
+    return classified_image
 end
 
 classified = ift_classification.(fc_imgs, land_masks)
-images = view_seg_random.(classified)
-data = labels_map.(classified)
+images = _colorize_classification.(classified)
 
 file_names = [
      join(
@@ -73,5 +83,4 @@ for (idx, data) in enumerate(eachrow(dataset.info))
             "classified.png"
         ], "-")
     save(joinpath("../data/classification_results/images", fname), images[idx])
-    save(joinpath("../data/classification_results", replace(fname, "png"=>"tiff")), Gray.(data[idx]./4))
 end
