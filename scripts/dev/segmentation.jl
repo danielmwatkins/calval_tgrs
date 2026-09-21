@@ -1,5 +1,4 @@
 #### Functions in the FSPipeline, placed here for early access ####
-import OffsetArrays: no_offset_view
 
 function extended_regionprops(
     img_indexmap,
@@ -9,8 +8,8 @@ function extended_regionprops(
     properties = [
         :label, :area, :perimeter, :bbox,
         :centroid, :convex_area, :major_axis_length,
-        :minor_axis_length, :orientation,
-        :circularity, :solidity],
+        :minor_axis_length, :orientation],
+        # :circularity, :solidity],
     probability_function=LogisticRegressionFilter,
 )
     img_indexmap = copy(img_indexmap)
@@ -26,6 +25,7 @@ function extended_regionprops(
     results_df[:, :length_scale] = results_df[:, :area] .^ 0.5
     # Correct circularity error
     results_df[:, :circularity] = 4 * pi * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
+    results_df[:, :solidity] = results_df[:, :area] ./ results_df[:, :convex_area]
     
     mask_mean(r, mask) = mean(mask[indices[r]])
     for k in keys(masks)
@@ -89,14 +89,14 @@ function fill_missing!(cases; template=Gray.(zeros(Bool, (400, 400))))
 end
 
 """
+Select floes with 
 
-naming - 
-- merge labels could mean joining two segments
 
 """
 function merge_floes(labeled_imgs, falsecolor_image, masks;
     max_distance_pixels=5,
-    max_error_area=0.2
+    max_error_area=0.2,
+    minimum_probability=0.5,
     )
     n = length(labeled_imgs)
     (n == 1) && return(labeled_imgs)
@@ -116,14 +116,14 @@ function merge_floes(labeled_imgs, falsecolor_image, masks;
         merge_arrays!(init_img, comp_img, df_matches; metric_variable=:probability)
 
         # Merge criteria 2: refining 
-        df_matches = subset(
+        # df_matches = subset(
     end
 end
 
 """
     merge_arrays!(labels1, labels2, comparison_dataframe)
 
-Overwrite labels1 using segments from labels2 if 
+Remove labels
 """
 function merge_arrays!(labels1, labels2, comparison_dataframe; metric_variable=:probability)    
     nrow(comparison_dataframe) > 0 && begin
@@ -304,57 +304,6 @@ function objectwise_compare_segmentation(
     rename!(results_df, Dict(r => Symbol("s2_", r) for r in properties))
 
     return results_df
-end
-
-function get_relevant_set(df1, df2, labels1, labels2)
-    relevant_set = Dict{Int64,Vector{Int64}}()
-    for floe in eachrow(df1)
-        # select labels that are inside the bounding box for the floe
-        matched_labels = unique(
-            labels2[floe.min_row:floe.max_row, floe.min_col:floe.max_col]
-        )
-
-        # if any, then check centroid positions
-        maximum(matched_labels) == 0 && continue
-        # get the rows in the segments_df from the matched labels
-        candidate_subset = subset(df2, :label => ByRow(l -> l in matched_labels))
-
-        relevant_set_labels = []
-
-        # check if centroid g in s
-        rc = round(Int64, floe.row_centroid)
-        cc = round(Int64, floe.col_centroid)
-        push!(relevant_set_labels, labels2[rc, cc])
-
-        # check if centroid s in g
-        for s_floe in eachrow(candidate_subset)
-            rc = round(Int64, s_floe.row_centroid)
-            cc = round(Int64, s_floe.col_centroid)
-            (labels1[rc, cc] == floe.label) && begin
-                push!(relevant_set_labels, s_floe.label)
-            end
-
-            # joint bbox
-            rmin = minimum((floe.min_row, s_floe.min_row))
-            rmax = maximum((floe.max_row, s_floe.max_row))
-            cmin = minimum((floe.min_col, s_floe.min_col))
-            cmax = maximum((floe.max_col, s_floe.max_col))
-
-            # check if area overlap between g and s is larger than 50% of g
-            gtmask = labels1[rmin:rmax, cmin:cmax] .== floe.label
-            slmask = labels2[rmin:rmax, cmin:cmax] .== s_floe.label
-            intersect_area = sum(gtmask .&& slmask)
-            if maximum([intersect_area / s_floe.area, intersect_area / floe.area]) > 0.5
-                push!(relevant_set_labels, s_floe.label)
-            end
-        end
-        relevant_set_labels = filter(r -> r != 0, unique(relevant_set_labels))
-        if length(relevant_set_labels) > 0
-            push!(relevant_set, floe.label => relevant_set_labels)
-        end
-    
-    end
-    return relevant_set
 end
 
 function objectwise_compare_segmentation(
