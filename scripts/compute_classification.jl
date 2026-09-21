@@ -1,5 +1,6 @@
 using Pkg
 Pkg.activate("calval")
+Pkg.instantiate()
 using IceFloeTracker
 using Images
 using Dates
@@ -46,7 +47,7 @@ function ift_classification(false_color_image, land_mask;
     return SegmentedImage(false_color_image, classified_image)
 end
 
-classified = ift_classifiation.(fc_imgs, land_masks)
+classified = ift_classification.(fc_imgs, land_masks)
 images = view_seg_random.(classified)
 data = labels_map.(classified)
 
@@ -71,6 +72,6 @@ for (idx, data) in enumerate(eachrow(dataset.info))
             data.satellite,
             "classified.png"
         ], "-")
-    save(joinpath("../data/classification_results/images", fname, classified[idx]))
-    save(joinpath("../data/classification_results/", fname, data[idx]))    
+    save(joinpath("../data/classification_results/images", fname), images[idx])
+    save(joinpath("../data/classification_results", replace(fname, "png"=>"tiff")), Gray.(data[idx]./4))
 end
