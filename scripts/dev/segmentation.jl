@@ -90,7 +90,8 @@ end
 
 """
 
-
+naming - 
+- merge labels could mean joining two segments
 
 """
 function merge_floes(labeled_imgs, falsecolor_image, masks;
@@ -113,6 +114,9 @@ function merge_floes(labeled_imgs, falsecolor_image, masks;
         within_tolerance(d, e) = (d .< max_distance_pixels) .&& (e .< max_error_area)
         df_matches = subset(df_comp, [:dist_s1_s2, :scaled_relative_error_area] => within_tolerance)
         merge_arrays!(init_img, comp_img, df_matches; metric_variable=:probability)
+
+        # Merge criteria 2: refining 
+        df_matches = subset(
     end
 end
 
@@ -140,7 +144,8 @@ function merge_arrays!(labels1, labels2, comparison_dataframe; metric_variable=:
         # Select the option with highest probability
         transform!(
             df_,
-            [Symbol("s1_", metric_variable), Symbol(":s2_", metric_variable)] =>
+            [Symbol("s1_", metric_variable),
+             Symbol("s2_", metric_variable)] =>
                 ByRow((s1, s2) -> s1 .> s2) => :s1_better,
         )
 
