@@ -599,3 +599,5 @@ function colorize_classification(labeled_image;
     return n0f8.(map(i -> color_map[i], labeled_image))
 end
 
+# TODO: refine segmentation boundaries using the boundary splines, and use the distance function 
+# to settle differences. 
