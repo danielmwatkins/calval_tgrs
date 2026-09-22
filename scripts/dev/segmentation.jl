@@ -1,6 +1,16 @@
 #### Functions in the FSPipeline, placed here for early access ####
 
-function extended_regionprops(
+"""
+    extended_regionprops_table()
+
+Calls @ref[`regionprops_table`] with the provided `properties` list. Then, adds information on
+floe-average overlap with the provided `masks` (expects Dict with mask name => binary mask), 
+band-average reflectance from the falsecolor image, and band 1 boundary contrast. Finally, uses
+a provided probability function to add a `probability` column indicating the likelihood the object
+is an ice floe.
+
+"""
+function extended_regionprops_table(
     img_indexmap,
     falsecolor_image,
     masks;
@@ -8,76 +18,146 @@ function extended_regionprops(
     properties = [
         :label, :area, :perimeter, :bbox,
         :centroid, :convex_area, :major_axis_length,
-        :minor_axis_length, :orientation],
-        # :circularity, :solidity],
+        :minor_axis_length, :orientation,
+        :circularity, :solidity],
     probability_function=LogisticRegressionFilter,
+    convex_area_algorithm=PolygonConvexArea(),
 )
     img_indexmap = copy(img_indexmap)
     indices = component_indices(img_indexmap)
 
-    results_df = regionprops_table(img_indexmap;
+    props_df = regionprops_table(img_indexmap;
         properties=properties,
-        convex_area_algorithm=PolygonConvexArea()
+        convex_area_algorithm=convex_area_algorithm,
     )
-    # Return blank image if no floes remain
-    nrow(results_df) == 0 && return results_df
+    # Return empty dataframe if no floes in image
+    nrow(props_df) == 0 && return props_df
 
-    results_df[:, :length_scale] = results_df[:, :area] .^ 0.5
-    # Correct circularity error
-    results_df[:, :circularity] = 4 * pi * results_df[:, :area] ./ results_df[:, :perimeter] .^ 2
-    results_df[:, :solidity] = results_df[:, :area] ./ results_df[:, :convex_area]
+    transform!(props_df, :area => ByRow(x -> x^0.5) => :length_scale)
     
+    # Don't allow circularity or solidity greater than 1
+    transform!(props_df, :solidity => ByRow(x -> minimum([x, 1])) => :solidity)
+    transform!(props_df, :circularity => ByRow(x -> minimum([x, 1])) => :circularity)
+    
+    # Get the average area coverage for each of the masks
     mask_mean(r, mask) = mean(mask[indices[r]])
     for k in keys(masks)
-        results_df[:, Symbol(k, "_fraction")] =  mask_mean.(results_df[:, :label], [masks[k]])
+        props_df[:, Symbol(k, "_fraction")] =  mask_mean.(props_df[:, :label], [masks[k]])
     end
     
-    # mean reflectance
-    segment_mean_reflectance = Dict(r => mean(falsecolor_image[indices[r]]) for r in keys(indices))
-    b = (r -> segment_mean_reflectance[r]).(results_df[:, :label])
-    results_df[:, :b1_reflectance_mean] = blue.(b)
-    results_df[:, :b7_reflectance_mean] = red.(b)
-    results_df[:, :b2_reflectance_mean] = green.(b)
+    # Get the mean reflectance and mean boundary reflectance, and expand the results into named color channels
+    add_mean_reflectance!(props_df, falsecolor_image, indices)
+    add_mean_boundary_reflectance!(props_df, falsecolor_image, img_indexmap; radius=boundary_radius)
+    
+    # TODO: generalize with a map from channel number to channel name
+    # Could make this a for loop with transform!()
+    props_df[:, :b7_mean_reflectance] = red.(props_df.mean_reflectance)
+    props_df[:, :b2_mean_reflectance] = green.(props_df.mean_reflectance)
+    props_df[:, :b1_mean_reflectance] = blue.(props_df.mean_reflectance)
 
-    # boundary mean reflectance
+    props_df[:, :b7_mean_boundary_reflectance] = red.(props_df.mean_boundary_reflectance)
+    props_df[:, :b2_mean_boundary_reflectance] = green.(props_df.mean_boundary_reflectance)
+    props_df[:, :b1_mean_boundary_reflectance] = blue.(props_df.mean_boundary_reflectance)
+
+    props_df[:, :b7_mean_boundary_contrast] = props_df[:, :b7_mean_reflectance] .- props_df[:, :b7_mean_boundary_reflectance]
+    props_df[:, :b2_mean_boundary_contrast] = props_df[:, :b2_mean_reflectance] .- props_df[:, :b2_mean_boundary_reflectance]
+    props_df[:, :b1_mean_boundary_contrast] = props_df[:, :b1_mean_reflectance] .- props_df[:, :b1_mean_boundary_reflectance]
     
-    # subset!(results_df, :b1_reflectance_mean => r -> r .> min_reflectance)
-    # nrow(results_df) == 0 && return results_df
-    
-    # mean Band 1 boundary reflectance
-    b1 = blue.(falsecolor_image)
-    eroded_labels = img_indexmap .* erode(img_indexmap .> 0)
-    bdry_indexmap = expand_labels(img_indexmap, boundary_radius) .- eroded_labels
-    bdry_indices = component_indices(bdry_indexmap)
-    bdry_labels = intersect(results_df[:, :label], unique(bdry_indexmap))
-    b1_bdry_means = Dict(L => mean(b1[bdry_indices[L]]) for L in bdry_labels)
-    for L ∈ results_df[:, :label]
-        if L ∉ bdry_labels
-            push!(b1_bdry_means, L => 0)
-        end
-    end
-    results_df[:, :b1_reflectance_bdry_mean] = [b1_bdry_means[L] for L in results_df[:, :label]]
-    results_df[:, :b1_bdry_contrast] = results_df[:, :b1_reflectance_mean] .- results_df[:, :b1_reflectance_bdry_mean]
-    
-    results_df[:, :probability] .= probability_function(results_df)
-    return results_df
+    # TODO: generalize to include inplace option
+    props_df[:, :probability] .= probability_function(props_df)
+
+    # Drop the RGB columns in the returned dataframe
+    return props_df[:, Not(:mean_reflectance, :mean_boundary_reflectance)]
 end
 
-function LogisticRegressionFilter(df;
+"""LogisticRegressionFilter(df;
     coefs = Dict(
         "intercept"           => -97.1879,
         "length_scale"        => 0.1267,
         "solidity"            => 91.164,
-        "b1_reflectance_mean" => 7.354,
-        "b1_bdry_contrast"    => 2.239,
-        "b7_reflectance_mean" => -1.517,
+        "b1_mean_reflectance" => 7.354,
+        "b7_mean_reflectance" => -1.517,
+        "b1_mean_boundary_contrast" => 2.239,
+        )
+    )
+    LogisticRegressionFilter!(df; coefs)
+
+Apply the logistic regression function with the provided set of coefficients. The in-place version
+adds a column "probability" to the dataframe, while the non-in-place version returns a vector
+with probabilities.
+
+"""
+function LogisticRegressionFilter(df;
+    coefs = Dict(
+        "intercept"                 => -97.1879,
+        "length_scale"              => 0.1267,
+        "solidity"                  => 91.164,
+        "b1_mean_reflectance"       => 7.354,
+        "b7_mean_reflectance"       => -1.517,
+        "b1_mean_boundary_contrast" => 2.239,
         )
     )
     colnames = [x for x in keys(coefs)]
     b = [x for x in values(coefs)]
-    df[:, :intercept] .= 1;
-    return 1 ./ (1 .+ exp.(-Matrix(df[:, colnames]) * b))
+    df[:, :intercept] .= 1
+    df_ = copy(df)[:, colnames]
+    return 1 ./ (1 .+ exp.(-Matrix(df_[:, colnames]) * b))
 end
+
+function LogisticRegressionFilter!(df;
+    coefs = Dict(
+        "intercept"                 => -97.1879,
+        "length_scale"              => 0.1267,
+        "solidity"                  => 91.164,
+        "b1_mean_reflectance"       => 7.354,
+        "b7_mean_reflectance"       => -1.517,
+        "b1_mean_boundary_contrast" => 2.239,
+        )
+    )
+    colnames = [x for x in keys(coefs)]
+    b = [x for x in values(coefs)]
+    df[:, :intercept] = 1;
+    df[:, :probability] = 1 ./ (1 .+ exp.(-Matrix(df[:, colnames]) * b))
+end
+
+"""
+    add_mean_reflectance!(props_df, img, indices)
+
+Compute the mean reflectance for `img` for each label in `props_df`. Assumes
+that `props_df` contains labels corresponding to the dictionary `indices` 
+(see @ref[`component_indices`]).
+"""
+function add_mean_reflectance!(props_df, img, indices)
+    segment_mean_reflectance(r) = mean(img[indices[r]])
+    props_df.mean_reflectance = segment_mean_reflectance.(props_df.label)
+end
+
+"""
+    add_mean_boundary_reflectance!(props_df, img, labels; radius=15)
+
+Compute the average of `img` within `radius` of the objects in `labels`. Uses
+the bounding boxes in `props_df` so that they don't have to be re-computed.
+"""
+function add_mean_boundary_reflectance!(props_df, img, labels; radius=15)
+    n, m = size(labels)
+    bdry_ref = []
+    for data in eachrow(props_df)
+        # expand the bounding box by radius
+        # minimum row is the maximum 
+        rmin = maximum((data.min_row - radius, 1))
+        rmax = minimum((data.max_row + radius, n))
+        cmin = maximum((data.min_col - radius, 1))
+        cmax = minimum((data.max_col + radius, m))
+
+        label_subset = Int64.(labels[rmin:rmax, cmin:cmax] .== data.label)
+        boundary = expand_labels(label_subset, radius)
+        boundary[label_subset .> 0] .= 0
+        image_subset = img[rmin:rmax, cmin:cmax]
+        push!(bdry_ref, mean(image_subset[boundary .> 0]))
+    end
+    props_df.mean_boundary_reflectance = bdry_ref
+end
+
 
 ### Helper for "missing" slots in the data retrieval
 function fill_missing!(cases; template=Gray.(zeros(Bool, (400, 400))))
@@ -103,8 +183,11 @@ function merge_floes(labeled_imgs, falsecolor_image, masks;
 
     # Initialize with the first image
     init_img = copy(labeled_imgs[1])
+    init_indices = component_indices(init_img)
     for i in 2:n
         comp_img = copy(labeled_imgs[i])
+        comp_indices = component_indices(comp_img)
+        
         df1 = extended_regionprops(init_img)
         df2 = extended_regionprops(comp_img)
 
@@ -278,9 +361,40 @@ end
 
 import IceFloeTracker.Tracking: euclidean_distance
 
-function objectwise_compare_segmentation(
-    df1, df2, labels1, labels2
+"""
+
+Produce a dataframe linking objects between two labeled images if the overlap
+between them is larger than 5% of either object.
+"""
+function compare_objects(
+    df1, df2, labels1, labels2;
+    indices1=component_indices(labels1),
+    indices2=component_indices(labels2),
+    comp_properties=propertynames(df1),
+    tol_area_fraction=0.05,
 )    
+
+
+    no_overlaps1 = _nonoverlapping_labels(labels2, indices1, labels1)
+    no_overlaps2 = _nonoverlapping_labels(labels1, indices2, labels2)
+    overlaps1 = setdiff([l for l in df1.label], no_overlaps1)
+    overlaps2 = setdiff([l for l in df2.label], no_overlaps2)
+    
+    forward_overlap = Dict(
+        r => [filter(r -> r != 0, unique(labels2[indices1[r]]))]
+        for r in overlaps_1)
+    backward_overlap = Dict(
+        r => [filter(r -> r != 0, unique(labels1[indices2[r]]))]
+        for r in overlaps_2)
+
+    # TODO: subset df_comp to just the ones with overlaps
+    df_comp = copy(df1[:, comp_properties])
+    rename!(df_comp,Dict(p => Symbol("s!_", p) for p in comp_properties))
+
+    # TODO: determine if I need to do both directions, or if the overlaps are bidirectional
+
+    # TODO: update the method below to use the set of overlaps not the relevant set
+    
     properties = union(propertynames(df1), propertynames(df2))
     relevant_set = get_relevant_set(df1, df2, labels1, labels2)
     results = DataFrame[]
@@ -305,6 +419,12 @@ function objectwise_compare_segmentation(
 
     return results_df
 end
+
+
+
+
+
+
 
 function objectwise_compare_segmentation(
     df1, df2, labels1, labels2; extended=true
@@ -343,7 +463,11 @@ function objectwise_compare_segmentation(
             end
             push!(results, df_rs)
         end
+        # else: add to no relevant set list
     end
+
+    # for floe in eachrow(df2)
+    # 
     if length(results) == 0
         return DataFrame(Dict(x=>[] for x in union(properties, [:s1_label, :s2_label, :dist_s1_s2, :scaled_relative_error_area])))
     end
@@ -461,7 +585,6 @@ function (c::IceFloeClassificationAlgorithm)(false_color_image, land_mask)::Matr
     classified_image[land_mask .> 0] .= c.key["land"]
     classified_image[ice .> 0] .= c.key["ice"]
     classified_image[clouds .> 0] .= c.key["cloud"]
-    
     return classified_image
 end
 
