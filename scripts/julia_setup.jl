@@ -23,3 +23,4 @@ using IJulia
 Pkg.build()
 Pkg.resolve()
 Pkg.instantiate()
+Pkg.precompile()
