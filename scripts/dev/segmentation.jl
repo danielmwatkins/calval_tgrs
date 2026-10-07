@@ -139,24 +139,27 @@ Compute the average of `img` within `radius` of the objects in `labels`. Uses
 the bounding boxes in `props_df` so that they don't have to be re-computed.
 """
 function add_mean_boundary_reflectance!(props_df, img, labels; radius=15)
-    n, m = size(labels)
-    bdry_ref = []
-    for data in eachrow(props_df)
-        # expand the bounding box by radius
-        # minimum row is the maximum 
-        rmin = maximum((data.min_row - radius, 1))
-        rmax = minimum((data.max_row + radius, n))
-        cmin = maximum((data.min_col - radius, 1))
-        cmax = minimum((data.max_col + radius, m))
-
-        label_subset = Int64.(labels[rmin:rmax, cmin:cmax] .== data.label)
-        boundary = expand_labels(label_subset, radius)
-        boundary[label_subset .> 0] .= 0
-        image_subset = img[rmin:rmax, cmin:cmax]
-        push!(bdry_ref, mean(image_subset[boundary .> 0]))
-    end
-    props_df.mean_boundary_reflectance = bdry_ref
+    # If this is outside the function we can do direct tests
+    bdry_mean(row) = _get_boundary_mean(row, img, labels, radius)
+    props_df.mean_boundary_reflectance = bdry_mean.(eachrow(props_df))
 end
+
+function _get_boundary_mean(dataframe_row, img, labels, radius)
+    # expand the bounding box by radius
+    # minimum row is the maximum 
+    n, m = size(labels)
+    rmin = maximum((dataframe_row.min_row - radius, 1))
+    rmax = minimum((dataframe_row.max_row + radius, n))
+    cmin = maximum((dataframe_row.min_col - radius, 1))
+    cmax = minimum((dataframe_row.max_col + radius, m))
+
+    label_subset = Int64.(labels[rmin:rmax, cmin:cmax] .== dataframe_row.label)
+    boundary = expand_labels(label_subset, radius)
+    boundary[label_subset .> 0] .= 0
+    image_subset = img[rmin:rmax, cmin:cmax]
+    return mean(image_subset[boundary .> 0])
+end
+
 
 
 ### Helper for "missing" slots in the data retrieval
@@ -168,209 +171,43 @@ function fill_missing!(cases; template=Gray.(zeros(Bool, (400, 400))))
     end
 end
 
-"""
-Select floes with 
-
 
 """
-function merge_floes(labeled_imgs, falsecolor_image, masks;
-    max_distance_pixels=5,
-    max_error_area=0.2,
-    minimum_probability=0.5,
-    )
-    n = length(labeled_imgs)
-    (n == 1) && return(labeled_imgs)
-
-    # Initialize with the first image
-    init_img = copy(labeled_imgs[1])
-    init_indices = component_indices(init_img)
-    for i in 2:n
-        comp_img = copy(labeled_imgs[i])
-        comp_indices = component_indices(comp_img)
-        
-        df1 = extended_regionprops(init_img)
-        df2 = extended_regionprops(comp_img)
-
-        df_comp = objectwise_compare_segmentation(df1, df2, labels1, labels2);
-
-        # Merge criteria 1: Refining similar segments
-        within_tolerance(d, e) = (d .< max_distance_pixels) .&& (e .< max_error_area)
-        df_matches = subset(df_comp, [:dist_s1_s2, :scaled_relative_error_area] => within_tolerance)
-        merge_arrays!(init_img, comp_img, df_matches; metric_variable=:probability)
-
-        # Merge criteria 2: refining 
-        # df_matches = subset(
-    end
-end
-
-"""
-    merge_arrays!(labels1, labels2, comparison_dataframe)
-
-Remove labels
-"""
-function merge_arrays!(labels1, labels2, comparison_dataframe; metric_variable=:probability)    
-    nrow(comparison_dataframe) > 0 && begin
-        
-        # Don't destroy the comparisons
-        df_ = copy(comparison_dataframe)
-        
-        # Select the item in the relative set with lowest area difference.
-        subset!(
-            groupby(df_, :s1_label),
-            :scaled_relative_error_area => r -> 1:length(r) .== argmin(r),
-        )
-        subset!(
-            groupby(df_, :s2_label),
-            :scaled_relative_error_area => r -> 1:length(r) .== argmin(r),
-        )
-    
-        # Select the option with highest probability
-        transform!(
-            df_,
-            [Symbol("s1_", metric_variable),
-             Symbol("s2_", metric_variable)] =>
-                ByRow((s1, s2) -> s1 .> s2) => :s1_better,
-        )
-
-        indices1 = component_indices(labels1)
-        indices2 = component_indices(labels2)
-        
-        _remove_labels!(labels1, indices1, df_[.!df_.s1_better, :s1_label])
-        _assign_labels!(labels1, indices2, df_[.!df_.s1_better, :s2_label]; 
-            offset=maximum(labels1))
-    end
-end
-
-
-function merge_floes(df1, df2, labels1, labels2; 
-    max_distance_pixels=10,
-    max_error_area=0.25,
-    min_floe_size=100
+    compare_objects(
+        df1, df2, labels1, labels2;
+        indices1=component_indices(labels1),
+        indices2=component_indices(labels2),
+        comp_properties=[
+            :label, :area, :row_centroid, :col_centroid,
+            :max_col, :max_row, :min_col, :min_row, :probability
+        ],
+        tol_area_fraction=0.05,
     )
 
-    # If no floes to merge, skip merge
-    nrow(df1) == 0 && return labels2
-    nrow(df2) == 0 && return labels1
+Produce a dataframe comparing objects in a pair of labeled images, including 
+all paired labels between labels1 and labels2 with area overlap greater than
+`tol_area_fraction` relative to either label. Additionally computes the distance between centroids, area overlap, and fractional area overlap.
 
-    #### Set up starting images
-    A = labels1
-    B = labels2
-    offset_b = maximum(A) # Offset the labels in B by the largest value in A
-    A_indices = component_indices(A)
-    B_indices = component_indices(B)
-    A_labels = df1.label
-    B_labels = df2.label
-
-    F = zeros(Int64, size(A))
-
-    #### Case 1: No overlap
-    A_no_overlap = []
-    B_no_overlap = []
-    for L in A_labels
-        if maximum(B[A_indices[L]]) == 0
-            F[A_indices[L]] .= L
-            push!(A_no_overlap, L)
-        end
-    end
-    for L in B_labels
-        if maximum(A[B_indices[L]]) == 0
-            F[B_indices[L]] .= L + offset_b
-            push!(B_no_overlap, L)
-        end
-    end
-
-    subset!(df1, :label => ByRow(r -> r ∉ A_no_overlap))
-    subset!(df2, :label => ByRow(r -> r ∉ B_no_overlap))
-    nrow(df1) == 0 || nrow(df2) == 0 && return F
-
-    #### Case 2: High-Quality Pairs
-    # In this case, there exists at least one item in the relevant set where the error metrics are both within the tolerance.
-    # Out of these objects, choose the one with the highest probability. 
-    df_comp = objectwise_compare_segmentation(df1, df2, labels1, labels2);
-    matches = subset(
-        df_comp,
-        [:dist_s1_s2, :scaled_relative_error_area] => (d, e) -> (d .< max_distance_pixels) .&& (e .< max_error_area),
-    )
-    nrow(matches) > 0 && begin
-        # Select the item in the relative set with lowest area difference.
-        subset!(
-            groupby(matches, :s1_label),
-            :scaled_relative_error_area => r -> 1:length(r) .== argmin(r),
-        )
-        subset!(
-            groupby(matches, :s2_label),
-            :scaled_relative_error_area => r -> 1:length(r) .== argmin(r),
-        )
-
-        # Select the option with highest probability
-        transform!(
-            matches,
-            [:s1_probability, :s2_probability] =>
-                ByRow((s1, s2) -> s1 .> s2) => :s1_better,
-        )
-
-        # Merge the two, prioritizing the second if there is overlap.
-        A_labels = matches[matches.s1_better, :s1_label]
-        B_labels = matches[.!matches.s1_better, :s2_label];
-
-        for L in A_labels
-            F[A_indices[L]] .= L
-        end        
-        for L in B_labels
-            F[B_indices[L]] .= L + offset_b
-        end
-
-        # Add intersections to list
-        idx = F .> 0
-        A_labels = union(A_labels, unique(A[idx]))
-        B_labels = union(B_labels, unique(B[idx]))
-
-        # Update the dataframes to remove the resolved labels
-        subset!(df1, :label => ByRow(r -> r ∉ A_labels))
-        subset!(df2, :label => ByRow(r -> r ∉ B_labels))
-    end
-
-    #### Case 3: Poor matches, including over and undersegmentation
-    # 1. Loop through remaining objects in A. If probability is higher
-    #    for the object in A than all intersections in B, keep object.
-    # 2. Loop through remaining objects in B. If no intersection with
-    #    the objects kept in step 1, keep object.
-    # 3. Update F and return.
-
-    # Select objects in A with higher probability than any intersection with B
-    A_labels = []
-    B_probability = Dict(r => p for (r, p) in zip(df2.label, df2.probability))
-    for s1 in eachrow(df1)        
-        B_labels = filter(r -> r ∈ df2.label, unique(labels2[A_indices[s1.label]]))
-        if all(s1.probability .> [B_probability[r] for r in B_labels])
-            push!(A_labels, s1.label)
-        end
-    end
-    for L in A_labels
-        F[A_indices[L]] .= L
-    end
-    
-    # Select objects in B with no intersection with F
-    B_labels = unique(B[F .> 0])
-    subset!(df2, :label => ByRow(r -> r ∉ B_labels))
-    for L in df2.label
-        F[B_indices[L]] .= L + offset_b
-    end
-    return F
-end
-
-
-"""
-
-Produce a dataframe linking objects between two labeled images if the overlap
-between them is larger than 5% of either object.
+Inputs:
+    - `df1` = region properties dataframe from labels1
+    - `df2` = region properties dataframe from labels2
+    - `labels1` = labeled image (Matrix{Int64})
+    - `labels2` = labeled image (Matrix{Int64})
+    - `indices1=component_indices(labels1)` = Indices map, option to reuse from earlier in processing 
+    - `indices2=component_indices(labels2)` = Indices map, option to reuse from earlier
+    - `comp_properties=[
+            :label, :area, :row_centroid, :col_centroid,
+            :max_col, :max_row, :min_col, :min_row, :probability
+        ]` = Columns in df1 and df2 to include in comparison
+    - `tol_area_fraction=0.05`= Minimum area fraction to include in comparison
 """
 function compare_objects(
     df1::DataFrame,
-    df2::DataFrame,
+    df2::DataFrame, 
     labels1::Matrix{Int64},
     labels2::Matrix{Int64}; # Should this be keyword or no?
     indices1=component_indices(labels1),
+    indices2=component_indices(labels2),
     comp_properties=[
         :label, :area, :row_centroid, :col_centroid,
         :max_col, :max_row, :min_col, :min_row, :probability
@@ -379,19 +216,16 @@ function compare_objects(
 )::DataFrame
 
     # Get list of labels in 1 with nonzero intersection
-    no_overlaps1 = _nonoverlapping_labels(labels2, indices1, df1.label)
-    overlaps1 = setdiff(df1.label, no_overlaps1)
-    
+    no_overlaps = _nonoverlapping_labels(labels2, indices1, df1.label)
+    overlaps = setdiff(df1.label, no_overlaps)
+
     # Make list of intersections from 1 to 2
     s1_label_list = []
     s2_label_list = []
-    for r in overlaps1
-        # Make sure the label lists are just labels in the dataframes
+    for r in overlaps
         for s in filter(r -> r != 0, unique(labels2[indices1[r]]))
-            if s in df2.label # Note: Shouldn't need this catch; likely an issue upstream lead to labels2 retaining labels dropped from df2
-                append!(s1_label_list, r)
-                append!(s2_label_list, s)
-            end
+            append!(s1_label_list, r)
+            append!(s2_label_list, s)
         end
     end
 
@@ -403,105 +237,55 @@ function compare_objects(
     df_dict1 = Dict(row.s1_label => row for row in eachrow(df_comp1))
     df_dict2 = Dict(row.s2_label => row for row in eachrow(df_comp2))
     df_comp = hcat(
-        DataFrame([df_dict1[l] for l in s1_label_list]),
+        DataFrame([df_dict1[l] for l in s1_label_list]), 
         DataFrame([df_dict2[l] for l in s2_label_list])
     )
 
     # Compute overlap metrics
     transform!(df_comp,
         [:s1_row_centroid, :s2_row_centroid,
-            :s1_col_centroid, :s2_col_centroid] =>
-            ByRow((r1, r2, c1, c2) -> sqrt((r1 - r2)^2 + (c1 - c2)^2)) =>
-                :s1_s2_dist
+         :s1_col_centroid, :s2_col_centroid] => 
+        ByRow((r1, r2, c1, c2) -> sqrt((r1 - r2)^2 + (c1 - c2)^2)) =>
+        :s1_s2_dist
     )
 
-    transform!(df_comp,
-        [:s1_label, :s2_label,
-            :s1_min_row, :s1_max_row, :s1_min_col, :s2_max_col] =>
-            ByRow((l1, l2, rmin, rmax, cmin, cmax) ->
-                sum(
-                    (labels1[rmin:rmax, cmin:cmax] .== l1) .&&
-                        (labels2[rmin:rmax, cmin:cmax] .== l2)
+    transform!(df_comp, 
+        [:s1_label, :s2_label, 
+         :s1_min_row, :s1_max_row, :s1_min_col, :s2_max_col] =>
+        ByRow((l1, l2, rmin, rmax, cmin, cmax) ->
+            sum(
+                (labels1[rmin:rmax, cmin:cmax] .== l1) .&&
+                (labels2[rmin:rmax, cmin:cmax] .== l2)
                 )
             ) =>
-                :s1_s2_area_overlap
+        :s1_s2_area_overlap
     )
 
     transform!(df_comp,
         [:s1_s2_area_overlap, :s1_area] => ByRow((a0, a1) -> a0/a1) =>
-            :s1_area_fraction
+        :s1_area_fraction
     )
 
     transform!(df_comp,
         [:s1_s2_area_overlap, :s2_area] => ByRow((a0, a1) -> a0/a1) =>
-            :s2_area_fraction
+        :s2_area_fraction
     )
 
     subset!(df_comp, :s1_area_fraction => r -> r .> tol_area_fraction)
     subset!(df_comp, :s2_area_fraction => r -> r .> tol_area_fraction)
-
+    
     return df_comp
 end
 
 
-
-
-
-
-
-function objectwise_compare_segmentation(
-    df1, df2, labels1, labels2; extended=true
-)    
-    properties = union(propertynames(df1), propertynames(df2))
-    relevant_set = get_relevant_set(df1, df2, labels1, labels2)
-    results = DataFrame[]
-    for floe in eachrow(df1)
-        g = floe.label
-        g in keys(relevant_set) && begin
-            df_rs = subset(df2, :label => ByRow(s -> s in relevant_set[g]))
-            df_rs[:, :dist_s1_s2] = euclidean_distance(floe, df_rs; r=1) # r=1 means use pixel units, not meters
-            df_rs[:, :scaled_relative_error_area] =
-                abs.(df_rs.area .- floe.area) ./ (df_rs.area .+ floe.area)
-            df_rs[:, :relative_error_area] =
-                abs.(df_rs.area .- floe.area) ./ floe.area
-
-            # object-wise precision and recall
-            gtmask = labels1 .== g
-            pr = []
-            re = []
-            sd = []
-            for s in df_rs.label
-                smask = labels2 .== s
-                intersect_area = sum(gtmask .&& smask)
-                push!(pr, intersect_area / sum(smask))
-                push!(re, intersect_area / sum(gtmask))
-                push!(sd, sum(gtmask .|| smask) .- intersect_area)
-            end
-            df_rs[:, :precision] .= pr
-            df_rs[:, :recall] .= re
-            df_rs[:, :shape_difference] .= sd
-            
-            for colname in properties
-                df_rs[!, Symbol("s1_", colname)] .= floe[colname]
-            end
-            push!(results, df_rs)
-        end
-        # else: add to no relevant set list
-    end
-
-    # for floe in eachrow(df2)
-    # 
-    if length(results) == 0
-        return DataFrame(Dict(x=>[] for x in union(properties, [:s1_label, :s2_label, :dist_s1_s2, :scaled_relative_error_area])))
-    end
-    results_df = vcat(results...; cols=:union)
-    rename!(results_df, Dict(r => Symbol("s2_", r) for r in properties))
-
-    return results_df
-end
-
 """
-Helper functions for the merge_floes routine
+    _nonoverlapping_labels(other, indices, labels)
+
+Return a list of labels in matrix `other` which have no
+overlap with the list of labels `labels` and the corresponding
+indices dictionary `indices`. Both `labels` and `indices` 
+come from a second labeled indexmap to be compared with `other`.
+
 """
 function _nonoverlapping_labels(other, indices, labels)
     return [
@@ -510,12 +294,28 @@ function _nonoverlapping_labels(other, indices, labels)
     ]
 end
 
+"""
+    _assign_labels!(output, indices, labels; offset=0)
+
+Insert each label from list `labels` into `output` using 
+the indices dictionary `indices`. Optional `offset` integer
+can be added to avoid duplicating an existing label.
+
+"""
 function _assign_labels!(output, indices, labels; offset=0)
     foreach(labels) do label
         output[indices[label]] .= label + offset
     end
 end
 
+"""
+    _remove_labels!(output, indices, remove_labels)
+
+Remove regions of `output` by setting the indices to 0.
+The labels in `remove_labels` correspond to the dictionary
+keys in `indices`.
+
+"""
 function _remove_labels!(output, indices, remove_labels)
     for L in remove_labels
         if L != 0
@@ -525,6 +325,127 @@ function _remove_labels!(output, indices, remove_labels)
 end
 
 
+"""
+    sequential_merge_floes(labeled_imgs, falsecolor_image, masks;
+        comp_properties=[
+            :label, :area, :row_centroid, :col_centroid,
+            :max_col, :max_row, :min_col, :min_row, :probability
+        ],
+        tol_area_fraction=0.05,
+    )
+
+Sequentially compare the images in `labeled_imgs` using the `compare_objects` 
+function. Use the area average of floe probabilities to compare - winner take all.
+(e.g., if S1 intersects T1 and T2, then we keep S1 if its probability is higher than
+the area-weighted average probability of T1 and T2). Returns a single labeled image.
+
+"""
+function sequential_merge_floes(labeled_imgs, falsecolor_image, masks;
+    comp_properties=[
+        :label, :area, :row_centroid, :col_centroid,
+        :max_col, :max_row, :min_col, :min_row, :probability
+    ],
+    tol_area_fraction=0.05,
+    )
+    n = length(labeled_imgs)
+    (n == 1) && return(labeled_imgs)
+
+    # Initialize with the first image
+    init_img = copy(labeled_imgs[1])
+    init_indices = component_indices(init_img)
+
+    # TODO: Could speed up by getting minimal set of properties
+    df1 = extended_regionprops_table(
+        init_img, falsecolor_image, masks
+    )
+    
+    for i in 2:n
+        comp_img = copy(labeled_imgs[i])
+        comp_indices = component_indices(comp_img)
+        
+        df2 = extended_regionprops_table(
+            comp_img, falsecolor_image, masks
+        )
+
+        df_comp = compare_objects(
+            df1, df2,
+            init_img, comp_img;
+            indices1=init_indices, 
+            indices2=comp_indices,
+            comp_properties=comp_properties,
+            tol_area_fraction=tol_area_fraction
+        )
+
+        # Method 1: Compare with full set of intersections
+        transform!(
+            groupby(df_comp, :s1_label),
+            [:s2_area, :s2_probability] =>
+            ((a, p) -> sum(p .* a ./ sum(a))) =>
+            :s2_weighted_probability
+        )
+        df_sel = subset(
+            df_comp, [:s1_probability, :s2_weighted_probability] => 
+            (p1, p2) -> p1 .< p2
+        )
+
+        remove_labels = df_sel.s1_label
+        no_matches = setdiff(df_comp.s2_label, df2.label)
+        add_labels = union(df_sel.s2_label, no_matches)
+
+        if (length(remove_labels) > 0) || (length(add_labels) > 0)
+            merge_arrays!(
+                init_img, init_indices, comp_indices,
+                remove_labels, add_labels
+            )
+            
+            # update information for init_img
+            # Could be a clever way to join df1 and df2
+            # instead of recomputing
+            df1 = extended_regionprops_table(
+                init_img, falsecolor_image, masks
+            )
+            init_indices = component_indices(init_img)
+        end
+    end
+    return init_img
+end
+
+"""
+    merge_arrays!(
+        output,
+        indices1,
+        indices2,
+        remove_labels,
+        add_labels
+    )
+
+Update labels1 by (1) removing the labels for each `L1` the list `remove_labels` by setting everything in `indices1[L1]` to 0 and then (2)
+writing `L2` into labels1 for each `L2` in `add_labels`.
+"""
+
+function merge_arrays!(output, indices1, indices2, remove_labels, add_labels)
+    _remove_labels!(output, indices1, remove_labels)
+    _assign_labels!(output, indices2, add_labels;
+        offset=maximum(labels1))
+end
+
+
+"""
+    colorize_classification(labeled_image;
+                            color_map=Dict(
+                                    0=>RGB(0),
+                                    1=>RGB(0.018, 0.49, 0.64),
+                                    2=>RGB(1),
+                                    3=>RGB(0.84, 0.73, 0.94)
+                                    )
+                                )
+
+Colorize a labeled image by mapping the keys in `color_map` to 
+entry colors. `color_map` needs to include all the labels in
+`labeled_image`. By default, the colors correspond to black, blue,
+white, and purple.
+
+"""
 function colorize_classification(labeled_image;
 color_map=Dict(
         0=>RGB(0),

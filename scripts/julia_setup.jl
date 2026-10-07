@@ -1,5 +1,5 @@
 # Sets up the cal-val environment for running the IFT scripts
-# and initialize the Jupyter kernelß
+# and initialize the Jupyter kernel
 using Pkg;
 Pkg.activate("calval")
 Pkg.add(; name="IceFloeTracker", rev="main")
