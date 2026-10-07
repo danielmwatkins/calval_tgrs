@@ -359,7 +359,6 @@ function merge_floes(df1, df2, labels1, labels2;
     return F
 end
 
-import IceFloeTracker.Tracking: euclidean_distance
 
 """
 
@@ -367,57 +366,81 @@ Produce a dataframe linking objects between two labeled images if the overlap
 between them is larger than 5% of either object.
 """
 function compare_objects(
-    df1, df2, labels1, labels2;
+    df1::DataFrame,
+    df2::DataFrame,
+    labels1::Matrix{Int64},
+    labels2::Matrix{Int64}; # Should this be keyword or no?
     indices1=component_indices(labels1),
-    indices2=component_indices(labels2),
-    comp_properties=propertynames(df1),
-    tol_area_fraction=0.05,
-)    
+    comp_properties=[
+        :label, :area, :row_centroid, :col_centroid,
+        :max_col, :max_row, :min_col, :min_row, :probability
+    ],
+    tol_area_fraction=0.05, # TODO: decide whether we should filter probability here
+)::DataFrame
 
-
-    no_overlaps1 = _nonoverlapping_labels(labels2, indices1, labels1)
-    no_overlaps2 = _nonoverlapping_labels(labels1, indices2, labels2)
-    overlaps1 = setdiff([l for l in df1.label], no_overlaps1)
-    overlaps2 = setdiff([l for l in df2.label], no_overlaps2)
+    # Get list of labels in 1 with nonzero intersection
+    no_overlaps1 = _nonoverlapping_labels(labels2, indices1, df1.label)
+    overlaps1 = setdiff(df1.label, no_overlaps1)
     
-    forward_overlap = Dict(
-        r => [filter(r -> r != 0, unique(labels2[indices1[r]]))]
-        for r in overlaps_1)
-    backward_overlap = Dict(
-        r => [filter(r -> r != 0, unique(labels1[indices2[r]]))]
-        for r in overlaps_2)
-
-    # TODO: subset df_comp to just the ones with overlaps
-    df_comp = copy(df1[:, comp_properties])
-    rename!(df_comp,Dict(p => Symbol("s!_", p) for p in comp_properties))
-
-    # TODO: determine if I need to do both directions, or if the overlaps are bidirectional
-
-    # TODO: update the method below to use the set of overlaps not the relevant set
-    
-    properties = union(propertynames(df1), propertynames(df2))
-    relevant_set = get_relevant_set(df1, df2, labels1, labels2)
-    results = DataFrame[]
-    for floe in eachrow(df1)
-        g = floe.label
-        g in keys(relevant_set) && begin
-            df_rs = subset(df2, :label => ByRow(s -> s in relevant_set[g]))
-            df_rs[:, :dist_s1_s2] = euclidean_distance(floe, df_rs; r=1) # r=1 means use pixel units, not meters
-            df_rs[:, :scaled_relative_error_area] =
-                abs.(df_rs.area .- floe.area) ./ (df_rs.area .+ floe.area)
-            for colname in properties
-                df_rs[!, Symbol("s1_", colname)] .= floe[colname]
+    # Make list of intersections from 1 to 2
+    s1_label_list = []
+    s2_label_list = []
+    for r in overlaps1
+        # Make sure the label lists are just labels in the dataframes
+        for s in filter(r -> r != 0, unique(labels2[indices1[r]]))
+            if s in df2.label # Note: Shouldn't need this catch; likely an issue upstream lead to labels2 retaining labels dropped from df2
+                append!(s1_label_list, r)
+                append!(s2_label_list, s)
             end
-            push!(results, df_rs)
         end
     end
-    if length(results) == 0
-        return DataFrame(Dict(x=>[] for x in union(properties, [:s1_label, :s2_label, :dist_s1_s2, :scaled_relative_error_area])))
-    end
-    results_df = vcat(results...; cols=:union)
-    rename!(results_df, Dict(r => Symbol("s2_", r) for r in properties))
 
-    return results_df
+    # Generate joint dataframe
+    df_comp1 = rename(df1[:, comp_properties],
+        Dict(p => Symbol("s1_", p) for p in comp_properties))
+    df_comp2 = rename(df2[:, comp_properties],
+        Dict(p => Symbol("s2_", p) for p in comp_properties))
+    df_dict1 = Dict(row.s1_label => row for row in eachrow(df_comp1))
+    df_dict2 = Dict(row.s2_label => row for row in eachrow(df_comp2))
+    df_comp = hcat(
+        DataFrame([df_dict1[l] for l in s1_label_list]),
+        DataFrame([df_dict2[l] for l in s2_label_list])
+    )
+
+    # Compute overlap metrics
+    transform!(df_comp,
+        [:s1_row_centroid, :s2_row_centroid,
+            :s1_col_centroid, :s2_col_centroid] =>
+            ByRow((r1, r2, c1, c2) -> sqrt((r1 - r2)^2 + (c1 - c2)^2)) =>
+                :s1_s2_dist
+    )
+
+    transform!(df_comp,
+        [:s1_label, :s2_label,
+            :s1_min_row, :s1_max_row, :s1_min_col, :s2_max_col] =>
+            ByRow((l1, l2, rmin, rmax, cmin, cmax) ->
+                sum(
+                    (labels1[rmin:rmax, cmin:cmax] .== l1) .&&
+                        (labels2[rmin:rmax, cmin:cmax] .== l2)
+                )
+            ) =>
+                :s1_s2_area_overlap
+    )
+
+    transform!(df_comp,
+        [:s1_s2_area_overlap, :s1_area] => ByRow((a0, a1) -> a0/a1) =>
+            :s1_area_fraction
+    )
+
+    transform!(df_comp,
+        [:s1_s2_area_overlap, :s2_area] => ByRow((a0, a1) -> a0/a1) =>
+            :s2_area_fraction
+    )
+
+    subset!(df_comp, :s1_area_fraction => r -> r .> tol_area_fraction)
+    subset!(df_comp, :s2_area_fraction => r -> r .> tol_area_fraction)
+
+    return df_comp
 end
 
 
@@ -528,8 +551,8 @@ abstract type IceFloeClassificationAlgorithm end
 
 """
 @kwdef struct Preprocess <: IceFloePreprocessingAlgorithm
-    histogram_algorithm = ContrastLimitedAdaptiveHistogramEqualization
-    histogram_params = (nbins=256, rblocks=4, cblocks=4, clip=1)
+    histogram_algorithm = ContrastLimitedAdaptiveHistogramEqualization(nbins=256, rblocks=4, cblocks=4, clip=3.2)
+    unsharp_mask_params = (radius=50, amount=2, threshold=0.01)
 end
 
 function (p::Preprocess)(
@@ -539,13 +562,14 @@ function (p::Preprocess)(
     proc_img = Gray.(image)
     apply_landmask!(proc_img, landmask)
 
-    adjust_histogram!(
+    adjust_histogram!(proc_img, p.histogram_algorithm)
+    proc_img .= unsharp_mask(
         proc_img,
-        p.histogram_algorithm(;
-            p.histogram_params...
-        ),
+        p.unsharp_mask_params.radius,
+        p.unsharp_mask_params.amount,
+        p.unsharp_mask_params.threshold,
     )
-
+    
     # Re-apply mask so histogram adjustment doesn't bleed into land
     apply_landmask!(proc_img, landmask)
     return proc_img
