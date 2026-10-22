@@ -119,3 +119,8 @@ Coding steps
    * Normalized shape difference curves for remaining passing floes
 10. Describe the process for minimizing the error (distance, ADRs, 1 - correlation, shape difference) across the set of floes, allowing for floes to have no match when appropriate.
 11. Figure showing candidate matches and final matches.
+
+
+
+## data
+R
