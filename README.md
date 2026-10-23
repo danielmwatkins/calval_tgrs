@@ -123,4 +123,4 @@ Coding steps
 
 
 ## data
-R
+The validation dataset has multiple components: the core 100-km random sample dataset, which is used in the testing scripts for the IFT
