@@ -3,17 +3,18 @@
 using Pkg;
 Pkg.activate("calval")
 Pkg.add(; name="IceFloeTracker", rev="main")
-
 Pkg.add(["IJulia",
         "DataFrames",
         "Plots",
         "CairoMakie",
+        "CSV",
         "CSVFiles",
+        "GLM",
         "Interpolations",
         "Images",
         "ImageSegmentation",
         "FileIO",
-        "StatsBase" 
+        "StatsBase"
         ])
 Pkg.update(; name="IceFloeTracker", rev="main")
 
