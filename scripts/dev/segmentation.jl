@@ -463,45 +463,94 @@ abstract type IceFloeClassificationAlgorithm end
 
 """
    Preprocess(
-        adapthisteq_params = (nbins=256, rblocks=8, cblocks=8, clip=1)
+        diffusion_algorithm = PeronaMalikDiffusion(λ=0.1, K=0.1, niters=5, g="exponential")
+        adapthisteq_params = (nbins=256, rblocks=8, cblocks=8, clip=0.99) # rblocks/cblocks not used yet -- add with CLAHE.jl
+        unsharp_mask_params = (radius=50, amount=0.2, threshold=0.01)
     )
-    Preprocess()(img, mask)
+    Preprocess()(img, cloudmask, landmask)
 
-    Converts input image to grayscale, then preprocesses by applying contrast limited adaptive histogram
-    equalization. The mask may include the land mask, coastal buffer, or a domain
+    Converts input image to grayscale, then preprocesses by applying nonlinear diffusion,
+    adaptive histogram equalization, and unsharp masking. Diffusion and unsharp masking are applied
+    to each tile, while the adaptive histogram equalization is divided according to the parameter
+    specifications.
+
+    Note: results are strongly sensitive to the choice of rblocks, cblocks, and clipping. Large clipping parameters with
+    small blocks results in noisy images and poor performance. With larger blocks, a higher clipping parameter can help.
 
 """
 @kwdef struct Preprocess <: IceFloePreprocessingAlgorithm
-    histogram_algorithm = ContrastLimitedAdaptiveHistogramEqualization(nbins=256, rblocks=4, cblocks=4, clip=3.2)
-    unsharp_mask_params = (radius=50, amount=2, threshold=0.01)
+    diffusion_algorithm = PeronaMalikDiffusion(; λ=0.1, K=0.1, niters=7, g="exponential")
+    adapthisteq_algorithm = ContrastLimitedAdaptiveHistogramEqualization(;
+            nbins=255,
+            rblocks=4,
+            cblocks=4,
+            clip=1,
+        )
+    unsharp_mask_params = (radius=50, amount=0.3, threshold=0.01)
 end
 
 function (p::Preprocess)(
-    image::AbstractArray{<:Union{AbstractGray, TransparentGray, AbstractRGB,TransparentRGB}}, landmask
+    truecolor_image::AbstractArray{<:Union{AbstractRGB,TransparentRGB, AbstractGray, TransparentGray}},
+    landmask, 
+    tiles
 )
     # Cast to grayscale first to save compute time
-    proc_img = Gray.(image)
-    apply_landmask!(proc_img, landmask)
+    proc_img = Gray.(truecolor_image)
 
-    adjust_histogram!(proc_img, p.histogram_algorithm)
+    # Diffusion and sharpening
+    proc_img .= nonlinear_diffusion(proc_img, tiles, p.diffusion_algorithm)
+
+    adjust_histogram!(
+        proc_img, p.adapthisteq_algorithm
+    )
+
     proc_img .= unsharp_mask(
         proc_img,
         p.unsharp_mask_params.radius,
         p.unsharp_mask_params.amount,
         p.unsharp_mask_params.threshold,
     )
-    
-    # Re-apply mask so histogram adjustment doesn't bleed into land
+
+    # Re-apply mask so sharpening doesn't bleed into land
     apply_landmask!(proc_img, landmask)
     return proc_img
 end
 
+function (p::Preprocess)(
+    truecolor_image::AbstractArray{<:Union{AbstractRGB,TransparentRGB, AbstractGray, TransparentGray}},
+    landmask,
+)
+    # Cast to grayscale first to save compute time
+    proc_img = Gray.(truecolor_image)
+
+    # Diffusion and sharpening
+    proc_img .= nonlinear_diffusion(proc_img, p.diffusion_algorithm)
+
+    adjust_histogram!(
+        proc_img, p.adapthisteq_algorithm
+    )
+
+    proc_img .= unsharp_mask(
+        proc_img,
+        p.unsharp_mask_params.radius,
+        p.unsharp_mask_params.amount,
+        p.unsharp_mask_params.threshold,
+    )
+
+    # Re-apply mask so sharpening doesn't bleed into land
+    apply_landmask!(proc_img, landmask)
+    return proc_img
+end
+
+# Q: Is using both Band 1 and Band 2 necessary? 
 """
    Classify(
         τ₁=0.1,
         τ₂=0.2,
         τ₇=0.2,
         key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+        cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=c.τ₂, band_7_threshold=c.τ₇)
+        ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=c.τ₁)
     )
     Classify()(false_color_image, mask)
 
@@ -509,40 +558,30 @@ Classifies an image into land, water, ice, and cloud using the Watkins2026 cloud
 and the IceDetectionBrightnessMidpoint algorithm. The parameter τ₁ is the brightness 
 minimum for the ice detection algorithm, while the τ₂ and τ₇ parameters are used in the 
 cloud mask algorithm. The `key` specifies the integers used to encode the classification
-for the returned label map.
+for the returned label map. `cloud_mask_algorithm` and `ice_mask_algorithm` should be functions
+accepting MODIS false color and Band 1 grayscale reflectance, respectively.
 
 """
 @kwdef struct Classify <: IceFloeClassificationAlgorithm
-        τ₁=0.1
-        τ₂=0.2
-        τ₇=0.2
-        key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+    τ₁=0.1
+    τ₂=0.2
+    τ₇=0.2
+    key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
+    cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=τ₂, band_7_threshold=τ₇)
+    ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=τ₁)
 end
 
 function (c::IceFloeClassificationAlgorithm)(false_color_image, land_mask)::Matrix{Int64}
-    cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=c.τ₂, band_7_threshold=c.τ₇)
-    ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=c.τ₁)
     fc_masked = apply_landmask(false_color_image, land_mask)
-    clouds = cloud_mask_algorithm(fc_masked)
-    ice = Gray.(blue.(apply_landmask(fc_masked, clouds))) |> ice_mask_algorithm
-    
+    clouds = c.cloud_mask_algorithm(fc_masked)
+    ice = Gray.(blue.(apply_landmask(fc_masked, clouds))) |> c.ice_mask_algorithm
+
     classified_image = ones(Int64, size(false_color_image)) .* c.key["water"]
     classified_image[land_mask .> 0] .= c.key["land"]
     classified_image[ice .> 0] .= c.key["ice"]
     classified_image[clouds .> 0] .= c.key["cloud"]
+
     return classified_image
 end
-
-function colorize_classification(labeled_image;
-    color_map=Dict(
-        0=>RGB(0),
-        1=>RGB(0.018, 0.49, 0.64),
-        2=>RGB(1),
-        3=>RGB(0.84, 0.73, 0.94)
-        )
-    )
-    return n0f8.(map(i -> color_map[i], labeled_image))
-end
-
 # TODO: refine segmentation boundaries using the boundary splines, and use the distance function 
 # to settle differences. 
