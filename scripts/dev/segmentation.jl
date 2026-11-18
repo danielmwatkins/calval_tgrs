@@ -430,32 +430,6 @@ function merge_arrays!(output, indices1, indices2, remove_labels, add_labels)
 end
 
 
-"""
-    colorize_classification(labeled_image;
-                            color_map=Dict(
-                                    0=>RGB(0),
-                                    1=>RGB(0.018, 0.49, 0.64),
-                                    2=>RGB(1),
-                                    3=>RGB(0.84, 0.73, 0.94)
-                                    )
-                                )
-
-Colorize a labeled image by mapping the keys in `color_map` to 
-entry colors. `color_map` needs to include all the labels in
-`labeled_image`. By default, the colors correspond to black, blue,
-white, and purple.
-
-"""
-function colorize_classification(labeled_image;
-color_map=Dict(
-        0=>RGB(0),
-        1=>RGB(0.018, 0.49, 0.64),
-        2=>RGB(1),
-        3=>RGB(0.84, 0.73, 0.94)
-        )
-    )
-    return n0f8.(map(i -> color_map[i], labeled_image))
-end
 
 
 abstract type IceFloePreprocessingAlgorithm end
@@ -542,17 +516,17 @@ function (p::Preprocess)(
     return proc_img
 end
 
-# Q: Is using both Band 1 and Band 2 necessary? 
 """
    Classify(
-        τ₁=0.1,
-        τ₂=0.2,
-        τ₇=0.2,
-        key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
-        cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=c.τ₂, band_7_threshold=c.τ₇)
-        ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=c.τ₁)
+        bright_ice_band_1_minimum=0.6
+        cloud_band_2_minimum=0.2
+        cloud_band_7_minimum=0.2
+        water_band_1_maximum=0.2
+        key=Dict("land"=>0, "water"=>1, "dark_ice"=>2, "bright_ice"=>3, "cloud"=>4)
+        cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=cloud_band_2_minimum, band_7_threshold=cloud_band_7_minimum)
+        ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=bright_ice_band_1_minimum)
     )
-    Classify()(false_color_image, mask)
+    Classify()(false_color_image, land_mask)
 
 Classifies an image into land, water, ice, and cloud using the Watkins2026 cloud mask
 and the IceDetectionBrightnessMidpoint algorithm. The parameter τ₁ is the brightness 
@@ -563,25 +537,58 @@ accepting MODIS false color and Band 1 grayscale reflectance, respectively.
 
 """
 @kwdef struct Classify <: IceFloeClassificationAlgorithm
-    τ₁=0.1
-    τ₂=0.2
-    τ₇=0.2
-    key=Dict("land"=>0, "water"=>1, "ice"=>2, "cloud"=>3)
-    cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=τ₂, band_7_threshold=τ₇)
-    ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=τ₁)
+    bright_ice_band_1_minimum=0.6
+    cloud_band_2_minimum=0.2
+    cloud_band_7_minimum=0.2
+    water_band_1_maximum=0.2
+    key=Dict("land"=>0, "water"=>1, "dark_ice"=>2, "bright_ice"=>3, "cloud"=>4)
+    cloud_mask_algorithm=Watkins2026CloudMask(band_2_threshold=cloud_band_2_minimum, band_7_threshold=cloud_band_7_minimum)
+    ice_mask_algorithm=IceDetectionBrightnessMidpoint(; minimum_reflectance=bright_ice_band_1_minimum)
 end
 
 function (c::IceFloeClassificationAlgorithm)(false_color_image, land_mask)::Matrix{Int64}
     fc_masked = apply_landmask(false_color_image, land_mask)
     clouds = c.cloud_mask_algorithm(fc_masked)
-    ice = Gray.(blue.(apply_landmask(fc_masked, clouds))) |> c.ice_mask_algorithm
-
-    classified_image = ones(Int64, size(false_color_image)) .* c.key["water"]
-    classified_image[land_mask .> 0] .= c.key["land"]
-    classified_image[ice .> 0] .= c.key["ice"]
+    bright_ice = Gray.(blue.(apply_landmask(fc_masked, clouds))) |> c.ice_mask_algorithm
+    water = apply_landmask(blue.(fc_masked) .< c.water_band_1_maximum, land_mask)
+    
+    classified_image = zeros(Int64, size(false_color_image)) .+ c.key["land"]
+    classified_image[land_mask .== 0] .= c.key["dark_ice"] # set all ocean pixels to dark ice
+    classified_image[water .> 0] .= c.key["water"] # then apply the explicit masks
+    classified_image[bright_ice .> 0] .= c.key["bright_ice"]
     classified_image[clouds .> 0] .= c.key["cloud"]
 
     return classified_image
 end
-# TODO: refine segmentation boundaries using the boundary splines, and use the distance function 
-# to settle differences. 
+
+
+"""
+    colorize_classification(labeled_image;
+                            color_map=Dict(
+                                0=>RGB(0),
+                                1=>RGB(0.018, 0.49, 0.64),
+                                2=> RGB(0.278, 0.654, 0.82),
+                                3=>RGB(1),
+                                4=>RGB(0.84, 0.73, 0.94)
+                                )
+                            )
+
+Colorize a labeled image by mapping the keys in `color_map` to 
+entry colors. `color_map` needs to include all the labels in
+`labeled_image`. By default, the colors correspond to black, blue,
+white, and purple.
+
+"""
+function colorize_classification(labeled_image;
+color_map=Dict(
+        0=>RGB(0),
+        1=>RGB(0.018, 0.49, 0.64),
+        2=> RGB(0.278, 0.654, 0.82),
+        3=>RGB(1),
+        4=>RGB(0.84, 0.73, 0.94)
+        )
+    )
+    return n0f8.(map(i -> color_map[i], labeled_image))
+end
+
+
